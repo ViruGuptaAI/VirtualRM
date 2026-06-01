@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contoso Bank — Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            background: linear-gradient(135deg, #0f1b2d 0%, #1a365d 40%, #2a4a7f 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        body::before, body::after {
+            content: '';
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.15;
+        }
+        body::before {
+            width: 600px; height: 600px;
+            background: #e6a817;
+            top: -200px; right: -100px;
+            animation: float1 20s ease-in-out infinite;
+        }
+        body::after {
+            width: 400px; height: 400px;
+            background: #4299e1;
+            bottom: -100px; left: -50px;
+            animation: float2 25s ease-in-out infinite;
+        }
+        @keyframes float1 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(-60px, 80px); } }
+        @keyframes float2 { 0%,100% { transform: translate(0,0); } 50% { transform: translate(40px, -60px); } }
+
+        .brand-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 4rem;
+            color: white;
+            position: relative;
+            z-index: 1;
+        }
+        .brand-logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 3rem;
+        }
+        .brand-logo-icon {
+            width: 56px; height: 56px;
+            background: linear-gradient(135deg, #e6a817, #f0c040);
+            border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.5rem; font-weight: 800; color: #1a365d;
+            box-shadow: 0 4px 20px rgba(230,168,23,0.3);
+        }
+        .brand-logo h1 { font-size: 2rem; font-weight: 700; }
+        .brand-tagline {
+            font-size: 1.8rem; font-weight: 300; line-height: 1.4;
+            margin-bottom: 1.5rem; max-width: 400px;
+        }
+        .brand-tagline strong { font-weight: 700; color: #e6a817; }
+        .brand-features {
+            display: flex; flex-direction: column; gap: 0.8rem;
+            opacity: 0.7; font-size: 0.9rem;
+        }
+        .brand-features span::before {
+            content: '\2713'; margin-right: 0.5rem; color: #e6a817; font-weight: 700;
+        }
+
+        .login-panel {
+            width: 480px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 3rem;
+            background: rgba(255,255,255,0.97);
+            backdrop-filter: blur(20px);
+            position: relative;
+            z-index: 1;
+        }
+        .login-panel h2 {
+            font-size: 1.5rem; color: #1a365d; margin-bottom: 0.3rem;
+        }
+        .login-panel .subtitle {
+            color: #718096; font-size: 0.85rem; margin-bottom: 2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #4a5568;
+            margin-bottom: 0.4rem;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 0.8rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-family: inherit;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            outline: none;
+            background: white;
+        }
+        .form-group input:focus {
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66,153,225,0.15);
+        }
+        .form-group input::placeholder {
+            color: #cbd5e0;
+        }
+
+        .error-msg {
+            color: #e53e3e;
+            font-size: 0.78rem;
+            margin-bottom: 1rem;
+            display: none;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .error-msg.show { display: flex; }
+
+        .btn-login {
+            width: 100%;
+            padding: 0.9rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #1a365d, #2a4a7f);
+            color: white;
+            transition: all 0.3s;
+            display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+        }
+        .btn-login:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(26,54,93,0.3);
+        }
+
+        .login-footer {
+            margin-top: 2rem; text-align: center;
+            font-size: 0.7rem; color: #a0aec0;
+        }
+
+        @media (max-width: 900px) {
+            body { flex-direction: column; }
+            .brand-panel { padding: 2rem; text-align: center; align-items: center; }
+            .brand-tagline { font-size: 1.3rem; }
+            .login-panel { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="brand-panel">
+        <div class="brand-logo">
+            <div class="brand-logo-icon">CB</div>
+            <h1>Contoso Bank</h1>
+        </div>
+        <div class="brand-tagline">
+            Your <strong>AI-Powered</strong> Banking Experience
+        </div>
+        <div class="brand-features">
+            <span>24/7 Virtual Relationship Manager</span>
+            <span>Instant credit card &amp; loan assistance</span>
+            <span>Smart savings recommendations</span>
+            <span>Powered by Azure Voice Live API</span>
+        </div>
+    </div>
+
+    <div class="login-panel">
+        <h2>Welcome back</h2>
+        <p class="subtitle">Sign in to your account</p>
+
+        <form onsubmit="return login(event)">
+            <div class="form-group">
+                <label for="userid">User ID</label>
+                <input type="text" id="userid" placeholder="Enter your user ID" autocomplete="username" autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password">
+            </div>
+            <div class="error-msg" id="error-msg">Invalid user ID or password</div>
+            <button type="submit" class="btn-login">Sign In &rarr;</button>
+        </form>
+
+        <div class="login-footer">
+            Contoso Bank Demo &middot; Powered by Azure AI Voice Live &amp; GPT-4.1
+        </div>
+    </div>
+
+    <script>
+        const VALID_USERS = {
+            'rajesh':  'contoso123',
+            'priya':   'contoso123',
+            'amit':    'contoso123',
+            'sneha':   'contoso123',
+            'vikram':  'contoso123',
+        };
+
+        function login(e) {
+            e.preventDefault();
+            const uid = document.getElementById('userid').value.trim().toLowerCase();
+            const pwd = document.getElementById('password').value;
+            const err = document.getElementById('error-msg');
+
+            if (VALID_USERS[uid] && VALID_USERS[uid] === pwd) {
+                err.classList.remove('show');
+                sessionStorage.setItem('contosoUser', uid);
+                window.location.href = '/home';
+            } else {
+                err.classList.add('show');
+                document.getElementById('password').value = '';
+                document.getElementById('password').focus();
+            }
+            return false;
+        }
+    </script>
+</body>
+</html>

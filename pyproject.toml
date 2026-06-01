@@ -1,0 +1,11 @@
+[project]
+name = "virtual-rm"
+version = "0.1.0"
+description = "Virtual Relationship Manager – BFSI Voice Agent powered by Azure Voice Live API"
+requires-python = ">=3.11"
+
+[project.dependencies]
+python-dotenv = ">=1.0"
+quart = ">=0.20"
+websockets = ">=13.0"
+azure-identity = ">=1.17"

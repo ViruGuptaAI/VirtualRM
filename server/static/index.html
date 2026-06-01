@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contoso Bank — Virtual RM</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <header>
+        <div class="logo" style="cursor:pointer" onclick="window.location.href='/home'">
+            <div class="logo-icon">CB</div>
+            <div>
+                <h1>Contoso Bank</h1>
+                <p>Virtual Relationship Manager</p>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.75rem;z-index:1;">
+            <div class="speaking-indicator" id="speaking-indicator">
+                <div class="speaking-waves">
+                    <div class="speaking-bar"></div>
+                    <div class="speaking-bar"></div>
+                    <div class="speaking-bar"></div>
+                    <div class="speaking-bar"></div>
+                </div>
+                <span id="speaking-label">Agent Speaking</span>
+            </div>
+            <div class="header-badge">🔒 Powered by Azure Voice Live API</div>
+            <a href="/home" style="color:rgba(255,255,255,0.8);text-decoration:none;font-size:0.75rem;padding:0.35rem 0.7rem;border:1px solid rgba(255,255,255,0.2);border-radius:6px;z-index:1;">← Back to Home</a>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="agent-panel">
+                <h3>Agent Pipeline</h3>
+                <div class="agent-card active" id="agent-triage">
+                    <div class="agent-dot triage"></div>
+                    <span>Anika — Virtual RM</span>
+                    <span class="agent-check">✓</span>
+                </div>
+                <div class="pipeline-connector" id="conn-triage-credit_card">
+                    <div class="pipeline-line"></div>
+                </div>
+                <div class="agent-card" id="agent-credit_card">
+                    <div class="agent-dot credit_card"></div>
+                    <span>Meera — Credit Cards</span>
+                    <span class="agent-check">✓</span>
+                </div>
+                <div class="pipeline-connector" id="conn-credit_card-loan">
+                    <div class="pipeline-line"></div>
+                </div>
+                <div class="agent-card" id="agent-loan">
+                    <div class="agent-dot loan"></div>
+                    <span>Priya — Loans</span>
+                    <span class="agent-check">✓</span>
+                </div>
+                <div class="pipeline-connector" id="conn-loan-savings_account">
+                    <div class="pipeline-line"></div>
+                </div>
+                <div class="agent-card" id="agent-savings_account">
+                    <div class="agent-dot savings_account"></div>
+                    <span>Kavya — Savings</span>
+                    <span class="agent-check">✓</span>
+                </div>
+                <div class="pipeline-connector" id="conn-savings_account-general_banking">
+                    <div class="pipeline-line"></div>
+                </div>
+                <div class="agent-card" id="agent-general_banking">
+                    <div class="agent-dot general_banking"></div>
+                    <span>Riya — General Banking</span>
+                    <span class="agent-check">✓</span>
+                </div>
+            </div>
+
+            <div class="handoff-panel" id="handoff-panel">
+                <h3>🔀 Routing History</h3>
+                <div class="handoff-timeline" id="handoff-timeline">
+                    <div class="handoff-empty" id="handoff-empty">No handoffs yet</div>
+                </div>
+            </div>
+
+            <div class="status-panel">
+                <h3>Session Info</h3>
+                <div class="status-item">
+                    <span>Status</span>
+                    <span class="status-value disconnected" id="conn-status">Disconnected</span>
+                </div>
+                <div class="status-item">
+                    <span>Current Agent</span>
+                    <span class="status-value" id="current-agent-label">—</span>
+                </div>
+                <div class="status-item">
+                    <span>Duration</span>
+                    <span class="status-value" id="call-duration">0:00</span>
+                </div>
+                <div class="status-item">
+                    <span>Handoffs</span>
+                    <span class="status-value" id="handoff-count">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat area -->
+        <div class="chat-area">
+            <div class="chat-header">
+                <h2>
+                    <span>💬 Conversation</span>
+                    <span class="current-agent-badge" id="agent-badge">Triage</span>
+                </h2>
+                <div class="visualizer-container" id="visualizer"></div>
+            </div>
+
+            <div class="chat-messages" id="messages">
+                <div class="message system">
+                    Click "Start Conversation" to connect with your Virtual Relationship Manager
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="btn btn-start" id="btn-start" onclick="startConversation()">
+                    🎙️ Start Conversation
+                </button>
+                <button class="btn btn-stop" id="btn-stop" onclick="stopConversation()" disabled>
+                    ⏹️ End Call
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        Contoso Bank Virtual RM Demo &nbsp;·&nbsp; Powered by Azure AI Voice Live API &amp; GPT-4.1 &nbsp;·&nbsp; Multi-Agent Orchestration
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

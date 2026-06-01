@@ -1,0 +1,975 @@
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+import os
+import socket
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+from urllib.parse import quote
+
+from azure.identity.aio import AzureCliCredential, ManagedIdentityCredential
+from dotenv import load_dotenv
+from quart import Quart, websocket, redirect
+from websockets.asyncio.client import connect as ws_connect
+
+# Ensure the server directory is on sys.path for agent imports
+_server_dir = str(Path(__file__).resolve().parent)
+if _server_dir not in sys.path:
+    sys.path.insert(0, _server_dir)
+
+from agents import AGENT_REGISTRY  # noqa: E402
+from crm_tools import TOOL_FUNCTIONS  # noqa: E402
+from sops import get_sop  # noqa: E402
+
+load_dotenv()
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Configuration
+# ──────────────────────────────────────────────────────────────────────────────
+VOICE_LIVE_ENDPOINT = os.getenv("AZURE_VOICE_LIVE_ENDPOINT", "")
+VOICE_LIVE_API_KEY = os.getenv("AZURE_VOICE_LIVE_API_KEY", "")
+VOICE_LIVE_MODEL = os.getenv("VOICE_LIVE_MODEL", "gpt-4.1-mini")
+MANAGED_IDENTITY_CLIENT_ID = os.getenv(
+    "AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID", ""
+)
+
+# ── BYO LLM ─────────────────────────────────────────────────────────────────
+BYOM_PROFILE = os.getenv("BYOM_PROFILE", "")
+FOUNDRY_RESOURCE_OVERRIDE = os.getenv("FOUNDRY_RESOURCE_OVERRIDE", "")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Logging
+# ──────────────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
+    format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+)
+logger = logging.getLogger("virtual_rm")
+logging.getLogger("websockets").setLevel(logging.WARNING)
+logging.getLogger("azure").setLevel(logging.WARNING)
+
+# ── Friendly labels for tool calls (shown in browser UI) ─────────────────────
+TOOL_DISPLAY_LABELS = {
+    "get_customer_profile": "Looking up your profile",
+    "get_customer_summary": "Pulling your account summary",
+    "get_eligibility_assessment": "Running eligibility check",
+    "get_credit_card_details": "Fetching credit card details",
+    "get_credit_card_transactions": "Loading recent transactions",
+    "get_reward_points": "Checking reward points balance",
+    "get_card_spending_analysis": "Analyzing spending patterns",
+    "check_card_upgrade_eligibility": "Checking upgrade eligibility",
+    "get_active_loans": "Fetching active loans",
+    "get_loan_product_details": "Looking up loan products",
+    "get_preapproved_offers": "Checking pre-approved offers",
+    "get_negotiation_terms": "Invoking risk model",
+    "calculate_emi": "Calculating EMI",
+    "get_competitor_rates": "Fetching market rates",
+    "check_cibil_score": "Pulling CIBIL score",
+    "check_rbi_repo_rate": "Checking RBI repo rate",
+    "get_account_details": "Fetching account details",
+    "get_fixed_deposits": "Loading fixed deposits",
+    "get_recurring_deposits": "Loading recurring deposits",
+    "get_savings_transactions": "Loading recent transactions",
+    "get_fd_rate_card": "Fetching FD rate card",
+    "get_debit_card_details": "Fetching debit card info",
+    "get_investments": "Loading investment portfolio",
+    "get_all_transactions": "Pulling transaction history",
+    "route_to_agent": "Connecting you to a specialist",
+    "play_hold_music": "Checking with supervisor",
+}
+
+# ── Cached credential (avoids spawning az.cmd on every connection) ────────────
+_cached_credential = None
+_cached_token = None
+_token_expiry = 0  # epoch seconds
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Voice Live session configuration builder
+# ──────────────────────────────────────────────────────────────────────────────
+def build_session_config(
+    agent_key: str,
+    context_summary: str = "",
+    customer_name: str = "",
+    sub_intent: str = "",
+) -> dict:
+    """
+    Build the session.update payload for a given agent.
+    Assembles: context header + lean base prompt + SOP workflow.
+    """
+    agent = AGENT_REGISTRY[agent_key]
+    base_prompt = agent["prompt"]
+
+    # Look up the right SOP + its required tool names
+    sop_text, sop_tool_names = get_sop(agent_key, sub_intent)
+
+    # Assemble instructions: base prompt + SOP
+    instructions = base_prompt
+    if sop_text:
+        instructions += "\n" + sop_text
+
+    # Inject customer name as context (greeting is handled by response.create)
+    if customer_name:
+        instructions = (
+            f"CUSTOMER NAME: {customer_name}\n"
+            f"Address the customer as {customer_name.split()[0]}. Do NOT repeat the greeting — it has already been delivered.\n\n"
+            + instructions
+        )
+
+    if context_summary:
+        first_name = customer_name.split()[0] if customer_name else "there"
+        instructions = (
+            f"CONTEXT FROM TRIAGE: The customer ({customer_name or 'unknown'}) was transferred to you. "
+            f"Their query: {context_summary}\n\n"
+            f"CRITICAL: You ARE the specialist. Do NOT say 'let me connect you' or 'let me transfer you'. "
+            f"You are already connected.\n"
+            f"Start with a brief personal introduction: 'Hello {first_name}, I'm [your name] from the [department]. "
+            f"Let me look into that for you.' Then immediately call the relevant tools to fetch their data.\n"
+            f"Do NOT repeat the triage agent's routing language.\n\n"
+            + instructions
+        )
+
+    config = {
+        "type": "session.update",
+        "session": {
+            "instructions": instructions,
+            # ── Turn detection (VAD) ─────────────────────────────────────
+            "turn_detection": {
+                "type": "azure_semantic_vad",
+                "threshold": 0.5,
+                "speech_duration_ms": 200,
+                "prefix_padding_ms": 700,
+                "silence_duration_ms": 400,
+                "remove_filler_words": True,
+                "languages": ["en", "hi"],
+                "create_response": True,
+                "interrupt_response": True,
+                "auto_truncate": True,
+                "appended_text_after_truncation": " [The user interrupted me.]",
+            },
+            # ── Input audio transcription ────────────────────────────────
+            "input_audio_transcription": {
+                "model": "azure-speech",
+                "language": "en-IN,hi-IN",
+                "phrase_list": [
+                    "Contoso Bank", "credit card", "debit card",
+                    "savings account", "fixed deposit", "recurring deposit",
+                    "home loan", "personal loan", "car loan", "education loan",
+                    "EMI", "CIBIL", "KYC", "UPI", "NEFT", "RTGS", "IMPS",
+                    "net banking", "mobile banking", "cheque book",
+                    "reward points", "cashback", "annual fee",
+                    "interest rate", "loan balance", "foreclose",
+                    "Anika", "Meera", "Priya", "Kavya", "Riya",
+                    "अनिका", "मीरा", "प्रिया", "काव्या", "रिया",
+                ],
+            },
+            # ── Noise / echo handling ────────────────────────────────────
+            "input_audio_noise_reduction": {
+                "type": "azure_deep_noise_suppression",
+            },
+            "input_audio_echo_cancellation": {
+                "type": "server_echo_cancellation",
+            },
+            # ── TTS voice ────────────────────────────────────────────────
+            "voice": {
+                "name": agent["voice"],
+                "type": "azure-standard",
+                "temperature": 0.5,
+                "rate": "1.05",
+            },
+            # ── Model behaviour ──────────────────────────────────────────
+            "temperature": 0.1,
+            "max_response_output_tokens": "1000",
+        },
+    }
+
+    # Add tools — filter to only what the SOP needs
+    if agent["tools"]:
+        if sop_tool_names is not None:
+            # SOP specifies exact tools needed — filter
+            tools = [t for t in agent["tools"] if t["name"] in sop_tool_names]
+        else:
+            # Default/fallback — send all agent tools
+            tools = agent["tools"]
+        if tools:
+            config["session"]["tools"] = tools
+            config["session"]["tool_choice"] = "auto"
+
+    return config
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Authentication helper
+# ──────────────────────────────────────────────────────────────────────────────
+async def get_auth_headers() -> dict:
+    """Build authentication headers for Voice Live WebSocket.
+    Caches the credential and token to avoid spawning az.cmd on every call.
+    """
+    global _cached_credential, _cached_token, _token_expiry
+    headers = {"x-ms-client-request-id": str(uuid.uuid4())}
+
+    if VOICE_LIVE_API_KEY:
+        headers["api-key"] = VOICE_LIVE_API_KEY
+        logger.info("Auth: using API key")
+        return headers
+
+    scope = "https://cognitiveservices.azure.com/.default"
+    now = time.time()
+
+    # Reuse cached token if still valid (with 5-min buffer)
+    if _cached_token and _token_expiry > now + 300:
+        headers["Authorization"] = f"Bearer {_cached_token}"
+        logger.info("Auth: using cached token (expires in %ds)", int(_token_expiry - now))
+        return headers
+
+    # Create credential if not cached
+    if _cached_credential is None:
+        if MANAGED_IDENTITY_CLIENT_ID:
+            _cached_credential = ManagedIdentityCredential(
+                client_id=MANAGED_IDENTITY_CLIENT_ID
+            )
+            logger.info("Auth: created Managed Identity credential")
+        else:
+            _cached_credential = AzureCliCredential()
+            logger.info("Auth: created Azure CLI credential")
+
+    t0 = time.time()
+    token = await _cached_credential.get_token(scope)
+    elapsed = time.time() - t0
+    _cached_token = token.token
+    _token_expiry = token.expires_on
+    headers["Authorization"] = f"Bearer {_cached_token}"
+    logger.info("Auth: fetched token in %.1fs (expires in %ds)",
+                elapsed, int(_token_expiry - now))
+    return headers
+
+
+def build_wss_url() -> str:
+    """Build the Voice Live WebSocket URL."""
+    endpoint = VOICE_LIVE_ENDPOINT.rstrip("/")
+    model = VOICE_LIVE_MODEL.strip()
+    # Only convert the base endpoint to wss://, not query-parameter URLs
+    wss_endpoint = endpoint.replace("https://", "wss://")
+    url = (
+        f"{wss_endpoint}/voice-live/realtime"
+        f"?api-version=2026-01-01-preview&model={model}&debug=on"
+    )
+    if BYOM_PROFILE:
+        url += f"&profile={BYOM_PROFILE}"
+        if FOUNDRY_RESOURCE_OVERRIDE:
+            url += f"&foundry-resource-override={FOUNDRY_RESOURCE_OVERRIDE}&debug=on"
+    return url
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Voice Live Session — manages a single call lifecycle
+# ──────────────────────────────────────────────────────────────────────────────
+class VoiceLiveSession:
+    """
+    Manages a single Voice Live session with agent handoff support.
+
+    Flow:
+      1. Browser connects via /web/ws (raw PCM16 audio)
+      2. Server opens WebSocket to Voice Live API
+      3. Triage agent greets the customer and identifies intent
+      4. Triage agent calls route_to_agent(intent, summary)
+      5. Session reconfigures with specialist agent's prompt (session.update)
+      6. Specialist agent continues the conversation seamlessly
+    """
+
+    def __init__(self, browser_ws, customer_id: str = "rajesh"):
+        self.browser_ws = browser_ws
+        self.vl_ws: Any = None
+        self._send_queue: asyncio.Queue = asyncio.Queue()
+        self._user_speech_end_ts = None
+        self._first_audio_latency_logged = False
+        self._current_agent = "triage"
+        self._call_id = str(uuid.uuid4())[:8]
+        self._customer_id = customer_id
+        self._response_agent = "triage"  # agent that started the current response
+        self._response_active = False  # True while a response is being generated
+        self._pending_response_create = False  # deferred response.create after handoff
+        self._pending_hold_music: int | None = None  # deferred hold music duration
+        self._last_vl_event_ts: float = time.monotonic()  # heartbeat tracking
+        self._response_watchdog: asyncio.Task | None = None  # safety net for dead sessions
+        self._last_transcription_empty: bool = True  # track if last speech had real content
+
+    # ── 1. Connect to Voice Live ─────────────────────────────────────────
+
+    async def start(self, auth_task=None):
+        """Open WebSocket to Voice Live, send triage config, spawn loops."""
+        url = build_wss_url()
+        # Use pre-started auth task if available, otherwise fetch fresh
+        if auth_task:
+            headers = await auth_task
+        else:
+            headers = await get_auth_headers()
+
+        logger.info("[%s] Connecting to Voice Live: %s", self._call_id, url)
+        try:
+            # Run WebSocket connect and CRM lookup in parallel
+            from crm_tools import get_customer_profile
+
+            async def _connect_ws():
+                return await ws_connect(
+                    url, additional_headers=headers, family=socket.AF_INET
+                )
+
+            async def _lookup_customer():
+                # SQLite is sync but fast — wrap for gather()
+                return get_customer_profile(self._customer_id)
+
+            ws_result, profile = await asyncio.gather(
+                _connect_ws(), _lookup_customer()
+            )
+            self.vl_ws = ws_result
+            self._customer_name = profile.get("name", "") if isinstance(profile, dict) else ""
+        except Exception as exc:
+            logger.error(
+                "[%s] Voice Live connection failed: %s", self._call_id, exc
+            )
+            await self._send_to_browser(
+                json.dumps({"Kind": "AgentTranscription",
+                 "Text": f"Connection failed: {exc}",
+                 "Agent": "System"})
+            )
+            return
+        logger.info(
+            "[%s] Voice Live connected — starting with TRIAGE agent",
+            self._call_id,
+        )
+
+        # Send triage agent config
+        await self._send_json(build_session_config("triage", customer_name=self._customer_name))
+
+        # Trigger the opening greeting with explicit text to skip model inference.
+        # The model only needs to synthesize speech, not figure out what to say.
+        first_name = self._customer_name.split()[0] if self._customer_name else "there"
+        await self._send_json({
+            "type": "response.create",
+            "response": {
+                "modalities": ["audio", "text"],
+                "instructions": (
+                    f"Say exactly: 'Hello {first_name}! Welcome to Contoso Bank. "
+                    f"I'm Anika, your Virtual RM. How can I help you today?'"
+                ),
+            },
+        })
+
+        # Notify browser of current agent
+        await self._send_agent_info("triage")
+
+        # Start bidirectional relay loops
+        asyncio.create_task(self._receiver_loop())
+        asyncio.create_task(self._sender_loop())
+        asyncio.create_task(self._heartbeat_loop())
+
+    # ── 2. Agent Handoff ─────────────────────────────────────────────────
+
+    async def _handle_agent_handoff(
+        self, intent: str, summary: str, sub_intent: str = ""
+    ):
+        """
+        Switch from triage to a specialist agent mid-conversation.
+        Sends session.update with: lean base prompt + SOP for sub_intent + context.
+        """
+        if intent not in AGENT_REGISTRY:
+            logger.warning(
+                "[%s] Unknown intent '%s', defaulting to general_banking",
+                self._call_id,
+                intent,
+            )
+            intent = "general_banking"
+
+        agent_info = AGENT_REGISTRY[intent]
+        logger.info(
+            "[%s] ✦ HANDOFF: %s → %s [sop=%s] (summary: %s)",
+            self._call_id,
+            AGENT_REGISTRY[self._current_agent]["name"],
+            agent_info["name"],
+            sub_intent or "default",
+            summary,
+        )
+
+        self._current_agent = intent
+
+        # Reconfigure the session with the specialist agent + SOP
+        new_config = build_session_config(
+            intent,
+            context_summary=summary,
+            customer_name=self._customer_name,
+            sub_intent=sub_intent,
+        )
+        await self._send_json(new_config)
+
+        # Trigger the specialist's opening response
+        await self._safe_response_create()
+
+        # Notify browser
+        await self._send_agent_info(intent)
+
+    # ── 3. Browser → Voice Live (sender) ─────────────────────────────────
+
+    async def handle_browser_audio(self, raw_pcm: bytes):
+        """Queue raw PCM16 audio from the browser for Voice Live."""
+        audio_b64 = base64.b64encode(raw_pcm).decode("ascii")
+        await self._send_queue.put(
+            json.dumps({
+                "type": "input_audio_buffer.append",
+                "audio": audio_b64,
+            })
+        )
+
+    async def _sender_loop(self):
+        """Drain queue and forward to Voice Live WebSocket."""
+        try:
+            while True:
+                msg = await self._send_queue.get()
+                if self.vl_ws:
+                    try:
+                        await self.vl_ws.send(msg)
+                    except Exception:
+                        logger.warning("[%s] Voice Live connection lost", self._call_id)
+                        break
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("[%s] Sender loop error", self._call_id)
+
+    # ── 4. Voice Live → Browser (receiver) ───────────────────────────────
+
+    async def _receiver_loop(self):
+        """Handle all Voice Live events, including function calls for routing."""
+        try:
+            async for message in self.vl_ws:
+                self._last_vl_event_ts = time.monotonic()  # heartbeat
+                event = json.loads(message)
+                event_type = event.get("type")
+
+                match event_type:
+                    # ── Lifecycle ─────────────────────────────────────────
+                    case "session.created":
+                        vl_session_id = event.get("session", {}).get("id", "unknown")
+                        logger.info(
+                            "[%s] Session created (vl_session_id=%s)",
+                            self._call_id,
+                            vl_session_id,
+                        )
+
+                    case "session.updated":
+                        logger.info(
+                            "[%s] Session updated (agent: %s)",
+                            self._call_id,
+                            AGENT_REGISTRY[self._current_agent]["name"],
+                        )
+
+                    case "input_audio_buffer.cleared":
+                        pass
+
+                    # ── User speech events ────────────────────────────────
+                    case "input_audio_buffer.speech_started":
+                        await self._send_to_browser(
+                            json.dumps({"Kind": "StopAudio"})
+                        )
+
+                    case "input_audio_buffer.speech_stopped":
+                        self._user_speech_end_ts = time.monotonic()
+                        self._first_audio_latency_logged = False
+                        self._last_transcription_empty = True  # assume empty until transcription proves otherwise
+                        # Start watchdog: if no response starts within 5s, force one
+                        if self._response_watchdog and not self._response_watchdog.done():
+                            self._response_watchdog.cancel()
+                        self._response_watchdog = asyncio.create_task(
+                            self._response_watchdog_timer()
+                        )
+
+                    # ── User transcription ────────────────────────────────
+                    case "conversation.item.input_audio_transcription.completed":
+                        transcript = event.get("transcript", "")
+                        stt_lang = event.get("language", "")
+                        # Track whether this was real speech or just noise
+                        if transcript.strip():
+                            self._last_transcription_empty = False
+                        logger.info(
+                            "[%s] USER [lang=%s]: %s",
+                            self._call_id,
+                            stt_lang,
+                            transcript,
+                        )
+                        await self._send_to_browser(
+                            json.dumps({
+                                "Kind": "UserTranscription",
+                                "Text": transcript,
+                                "Language": stt_lang,
+                            })
+                        )
+
+                    case "conversation.item.input_audio_transcription.failed":
+                        logger.error(
+                            "[%s] Transcription failed: %s",
+                            self._call_id,
+                            event.get("error"),
+                        )
+
+                    # ── Function call (agent routing) ─────────────────────
+                    case "response.function_call_arguments.done":
+                        await self._handle_function_call(event)
+
+                    # ── Agent response audio ─────────────────────────────
+                    case "response.audio.delta":
+                        if (
+                            self._user_speech_end_ts
+                            and not self._first_audio_latency_logged
+                        ):
+                            latency_ms = int(
+                                (time.monotonic() - self._user_speech_end_ts)
+                                * 1000
+                            )
+                            logger.info(
+                                "[%s] Time to first audio byte: [latency=%dms]",
+                                self._call_id,
+                                latency_ms,
+                            )
+                            self._first_audio_latency_logged = True
+
+                        delta = event.get("delta", "")
+                        audio_bytes = base64.b64decode(delta)
+                        await self._send_to_browser(audio_bytes)
+
+                    # ── Agent transcript ──────────────────────────────────
+                    case "response.audio_transcript.done":
+                        transcript = event.get("transcript", "").strip()
+                        if not transcript:
+                            # Skip empty transcripts (e.g. interrupted before speaking)
+                            break
+                        # Use the agent that started this response, not _current_agent
+                        # (which may have changed due to handoff mid-response)
+                        agent_name = AGENT_REGISTRY[self._response_agent]["name"]
+                        logger.info(
+                            "[%s] AGENT (%s): %s",
+                            self._call_id,
+                            agent_name,
+                            transcript,
+                        )
+                        await self._send_to_browser(
+                            json.dumps({
+                                "Kind": "AgentTranscription",
+                                "Text": transcript,
+                                "Agent": agent_name,
+                            })
+                        )
+
+                    # ── Truncation (interruption) ────────────────────────
+                    case "conversation.item.truncated":
+                        logger.info(
+                            "[%s] Response truncated (user interrupted). item_id=%s",
+                            self._call_id,
+                            event.get("item_id"),
+                        )
+
+                    # ── Intermediate events (ignored) ────────────────────
+                    case (
+                        "response.created"
+                        | "response.output_item.added"
+                        | "response.audio_transcript.delta"
+                        | "response.function_call_arguments.delta"
+                    ):
+                        if event_type == "response.created":
+                            self._response_agent = self._current_agent
+                            self._response_active = True
+                            # Cancel watchdog — response started normally
+                            if self._response_watchdog and not self._response_watchdog.done():
+                                self._response_watchdog.cancel()
+                                self._response_watchdog = None
+
+                    # ── Response complete ─────────────────────────────────
+                    case "response.done":
+                        self._response_active = False
+                        resp = event.get("response", {})
+                        status = resp.get("status")
+                        if status == "cancelled":
+                            details = resp.get("status_details", {})
+                            logger.info(
+                                "[%s] Response cancelled (reason=%s)",
+                                self._call_id,
+                                details.get("reason", "unknown"),
+                            )
+                            # Agent was interrupted — never finished speaking.
+                            # Clear deferred state so hold music doesn't play
+                            # when the agent never got to say "please hold".
+                            if self._pending_hold_music is not None:
+                                logger.info("[%s] Clearing pending hold music (response was cancelled)", self._call_id)
+                                self._pending_hold_music = None
+                            self._pending_response_create = False
+                        elif status != "completed":
+                            logger.error(
+                                "[%s] Response error: %s",
+                                self._call_id,
+                                json.dumps(resp.get("status_details", {})),
+                            )
+
+                        # Play deferred hold music AFTER agent finishes speaking
+                        if self._pending_hold_music is not None:
+                            duration = self._pending_hold_music
+                            self._pending_hold_music = None
+                            logger.info("[%s] 🎵 Playing hold music (%ds)", self._call_id, duration)
+                            await self._send_to_browser(
+                                json.dumps({"Kind": "PlayHoldMusic", "Duration": duration})
+                            )
+                            await asyncio.sleep(duration)
+                            logger.info("[%s] 🎵 Hold music finished, injecting thank-for-waiting instruction", self._call_id)
+                            # Inject a system hint so the model thanks the customer for waiting
+                            await self._send_json({
+                                "type": "conversation.item.create",
+                                "item": {
+                                    "type": "message",
+                                    "role": "user",
+                                    "content": [{
+                                        "type": "input_text",
+                                        "text": "[System: Hold music has ended. Start your response by thanking the customer for waiting before delivering your answer.]",
+                                    }],
+                                },
+                            })
+                            # Use safe create — VAD may have already started a response
+                            await self._safe_response_create()
+                        # Fire deferred response.create (from handoff or tool calls)
+                        elif self._pending_response_create:
+                            self._pending_response_create = False
+                            logger.info("[%s] Firing deferred response.create", self._call_id)
+                            await self._send_json({"type": "response.create"})
+
+                    # ── Errors ────────────────────────────────────────────
+                    case "error":
+                        logger.error(
+                            "[%s] Voice Live error: %s",
+                            self._call_id,
+                            json.dumps(event),
+                        )
+
+                    case _:
+                        logger.debug(
+                            "[%s] Unhandled event: %s",
+                            self._call_id,
+                            event_type,
+                        )
+
+        except Exception:
+            logger.exception("[%s] Receiver loop error", self._call_id)
+
+    # ── Function call handler ────────────────────────────────────────────
+
+    async def _handle_function_call(self, event: dict):
+        """
+        Process function calls from the LLM.
+        Currently handles 'route_to_agent' for triage → specialist handoff.
+        """
+        call_id = event.get("call_id", "")
+        fn_name = event.get("name", "")
+        args_str = event.get("arguments", "{}")
+
+        logger.info(
+            "[%s] Function call: %s(%s)",
+            self._call_id,
+            fn_name,
+            args_str,
+        )
+
+        # Send workflow step to browser UI
+        label = TOOL_DISPLAY_LABELS.get(fn_name)
+        if label:
+            await self._send_to_browser(
+                json.dumps({"Kind": "ToolStatus", "Tool": fn_name, "Label": label})
+            )
+
+        if fn_name == "route_to_agent":
+            try:
+                args = json.loads(args_str)
+            except json.JSONDecodeError:
+                args = {"intent": "general_banking", "summary": ""}
+
+            intent = args.get("intent", "general_banking")
+            sub_intent = args.get("sub_intent", "general")
+            summary = args.get("summary", "")
+
+            # Send function call output (acknowledge the call)
+            await self._send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({
+                        "status": "success",
+                        "message": f"Routing to {intent} specialist [sop={sub_intent}]",
+                    }),
+                },
+            })
+
+            # Perform the handoff with sub_intent for SOP activation
+            await self._handle_agent_handoff(intent, summary, sub_intent)
+
+        elif fn_name == "play_hold_music":
+            # ── Hold music — DEFERRED until current response finishes ────
+            # The model says "please hold" as audio in the same response.
+            # We defer music playback until response.done so the spoken
+            # hold message plays BEFORE the music starts.
+            try:
+                args = json.loads(args_str) if args_str.strip() else {}
+            except json.JSONDecodeError:
+                args = {}
+            duration = args.get("duration", 5)
+            logger.info("[%s] 🎵 Hold music queued (%ds, will play after response finishes)", self._call_id, duration)
+
+            # Store for later — will fire in response.done handler
+            self._pending_hold_music = duration
+
+            # Return tool output immediately so the model can finish speaking
+            await self._send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({
+                        "status": "hold_music_queued",
+                        "message": "Hold music will play after you finish speaking. Finish your hold announcement now. After the music ends, your next response MUST start with thanking the customer for waiting before delivering your answer.",
+                    }),
+                },
+            })
+            # Do NOT trigger response.create here — let the model finish
+            # its current response (saying "please hold"), then music
+            # plays on response.done, then we trigger a new response.
+
+        elif fn_name in TOOL_FUNCTIONS:
+            # ── CRM data tool call ───────────────────────────────────────
+            try:
+                args = json.loads(args_str) if args_str.strip() else {}
+            except json.JSONDecodeError:
+                args = {}
+
+            tool_fn = TOOL_FUNCTIONS[fn_name]
+
+            # Determine which params the function needs
+            import inspect
+            sig = inspect.signature(tool_fn)
+            call_kwargs = {}
+            for param_name in sig.parameters:
+                if param_name == "customer_id":
+                    call_kwargs["customer_id"] = self._customer_id
+                elif param_name in args:
+                    call_kwargs[param_name] = args[param_name]
+
+            try:
+                result = tool_fn(**call_kwargs)
+            except Exception as exc:
+                logger.exception("[%s] CRM tool error: %s", self._call_id, fn_name)
+                result = {"error": str(exc)}
+
+            logger.info(
+                "[%s] Tool %s → %d chars",
+                self._call_id, fn_name, len(json.dumps(result)),
+            )
+
+            # Return the result to the model
+            await self._send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(result),
+                },
+            })
+
+            # Trigger the model to continue with the data
+            await self._safe_response_create()
+
+        else:
+            logger.warning(
+                "[%s] Unknown function call: %s",
+                self._call_id,
+                fn_name,
+            )
+
+    # ── Helpers ───────────────────────────────────────────────────────────
+
+    async def _safe_response_create(self):
+        """Send response.create, or defer if a response is already active."""
+        if self._response_active:
+            logger.info("[%s] Deferring response.create (response still active)", self._call_id)
+            self._pending_response_create = True
+        else:
+            await self._send_json({"type": "response.create"})
+
+    async def _response_watchdog_timer(self):
+        """Safety net: if no response starts within 5s of speech ending, force one."""
+        try:
+            await asyncio.sleep(5)
+            if not self._response_active:
+                # Don't force a response for empty transcriptions (noise/breathing)
+                if self._last_transcription_empty:
+                    logger.debug(
+                        "[%s] Watchdog: skipping — last transcription was empty (noise/breathing)",
+                        self._call_id,
+                    )
+                    return
+                logger.warning(
+                    "[%s] ⚠️ Watchdog: no response 5s after speech ended — forcing response.create",
+                    self._call_id,
+                )
+                await self._send_json({"type": "response.create"})
+        except asyncio.CancelledError:
+            pass  # Normal — response started before timeout
+
+    async def _heartbeat_loop(self):
+        """Detect dead Voice Live connections and notify the browser."""
+        try:
+            while self.vl_ws and not self.vl_ws.close_code:
+                await asyncio.sleep(10)
+                silence = time.monotonic() - self._last_vl_event_ts
+                if silence > 30:
+                    logger.error(
+                        "[%s] 💔 No Voice Live events for %.0fs — connection appears dead",
+                        self._call_id, silence,
+                    )
+                    await self._send_to_browser(
+                        json.dumps({
+                            "Kind": "AgentTranscription",
+                            "Text": "Connection lost. Please refresh the page to reconnect.",
+                            "Agent": "System",
+                        })
+                    )
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    async def _send_json(self, obj: dict):
+        if self.vl_ws:
+            await self.vl_ws.send(json.dumps(obj))
+
+    async def _send_to_browser(self, data):
+        try:
+            await self.browser_ws.send(data)
+        except Exception:
+            logger.exception("[%s] Failed to send to browser", self._call_id)
+
+    async def _send_agent_info(self, agent_key: str):
+        """Notify browser which agent is currently active."""
+        agent = AGENT_REGISTRY[agent_key]
+        await self._send_to_browser(
+            json.dumps({
+                "Kind": "AgentSwitch",
+                "Agent": agent["name"],
+                "AgentKey": agent_key,
+            })
+        )
+
+    async def close(self):
+        if self.vl_ws:
+            try:
+                await self.vl_ws.close()
+            except Exception:
+                pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Quart app
+# ──────────────────────────────────────────────────────────────────────────────
+app = Quart(__name__, static_folder="static")
+
+
+@app.route("/")
+async def index():
+    return redirect("/login")
+
+
+@app.route("/login")
+async def login_page():
+    return await app.send_static_file("login.html")
+
+
+@app.route("/home")
+async def home_page():
+    return await app.send_static_file("home.html")
+
+
+@app.route("/chat")
+async def chat_page():
+    return await app.send_static_file("index.html")
+
+
+@app.websocket("/web/ws")
+async def web_ws():
+    """
+    Browser WebSocket endpoint.
+
+    Protocol:
+        Browser → Server:  raw PCM16 bytes (ArrayBuffer)
+        Server → Browser:  raw PCM16 bytes (TTS audio)
+                           OR JSON: {"Kind": "StopAudio"}
+                           OR JSON: {"Kind": "AgentTranscription", "Text": "...", "Agent": "..."}
+                           OR JSON: {"Kind": "UserTranscription", "Text": "...", "Language": "..."}
+                           OR JSON: {"Kind": "AgentSwitch", "Agent": "...", "AgentKey": "..."}
+    """
+    logger.info("Browser connected")
+
+    # Start auth + WSS connection IN PARALLEL with waiting for customer ID
+    # This overlaps the ~1.2s WSS connect with the browser→server message latency
+    auth_task = asyncio.create_task(get_auth_headers())
+
+    # First text message from browser is the customer ID
+    customer_id = "rajesh"  # default fallback
+    try:
+        first_msg = await websocket.receive()
+        if isinstance(first_msg, str):
+            data = json.loads(first_msg)
+            customer_id = data.get("customerId", "rajesh")
+            logger.info("Customer ID: %s", customer_id)
+    except Exception:
+        pass
+
+    # Pass the pre-started auth task to the session
+    session = VoiceLiveSession(websocket, customer_id=customer_id)
+    asyncio.create_task(session.start(auth_task=auth_task))
+
+    try:
+        while True:
+            msg = await websocket.receive()
+            await session.handle_browser_audio(msg)
+    except asyncio.CancelledError:
+        pass
+    except Exception:
+        logger.exception("Web WebSocket error")
+    finally:
+        await session.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Startup — pre-warm auth token so first connection is fast
+# ──────────────────────────────────────────────────────────────────────────────
+@app.before_serving
+async def _prewarm_auth():
+    """Fetch auth token at startup so the first browser connection is instant."""
+    if not VOICE_LIVE_API_KEY:
+        logger.info("Pre-warming auth token...")
+        try:
+            await get_auth_headers()
+            logger.info("Auth token pre-warmed successfully")
+        except Exception as e:
+            logger.warning("Auth pre-warm failed (will retry on first connection): %s", e)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    app.run(
+        debug=True,
+        host=os.getenv("APP_HOST", "0.0.0.0"),
+        port=int(os.getenv("APP_PORT", "8000")),
+    )

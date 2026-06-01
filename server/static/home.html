@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contoso Bank — Home</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: #f0f4f8;
+            color: #1a202c;
+            min-height: 100vh;
+        }
+
+        /* ── Top Nav ─────────────────────────────────────────────────── */
+        .topnav {
+            background: linear-gradient(135deg, #1a365d 0%, #2a4a7f 100%);
+            color: white;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            height: 60px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .topnav-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+        .topnav-logo-icon {
+            width: 34px; height: 34px;
+            background: linear-gradient(135deg, #e6a817, #f0c040);
+            border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.85rem; font-weight: 800; color: #1a365d;
+        }
+        .topnav-links {
+            display: flex;
+            gap: 0;
+            margin-left: 3rem;
+            height: 100%;
+        }
+        .topnav-links a {
+            color: rgba(255,255,255,0.7);
+            text-decoration: none;
+            font-size: 0.82rem;
+            font-weight: 500;
+            padding: 0 1.2rem;
+            display: flex;
+            align-items: center;
+            height: 100%;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .topnav-links a:hover, .topnav-links a.active {
+            color: white;
+            border-bottom-color: #e6a817;
+            background: rgba(255,255,255,0.05);
+        }
+        .topnav-right {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .topnav-user {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+        .topnav-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem; font-weight: 700; color: white;
+        }
+        .topnav-username { font-size: 0.8rem; font-weight: 500; }
+        .btn-logout {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 0.35rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-logout:hover { background: rgba(255,255,255,0.2); }
+
+        /* ── Welcome Banner ──────────────────────────────────────────── */
+        .welcome-banner {
+            background: linear-gradient(135deg, #1a365d, #2a4a7f, #1e3a5f);
+            color: white;
+            padding: 2rem 2.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .welcome-banner::after {
+            content: '';
+            position: absolute;
+            top: -50%; right: -10%;
+            width: 400px; height: 400px;
+            border-radius: 50%;
+            background: rgba(230,168,23,0.08);
+        }
+        .welcome-banner h1 { font-size: 1.5rem; font-weight: 600; position: relative; z-index: 1; }
+        .welcome-banner p { opacity: 0.7; font-size: 0.85rem; margin-top: 0.3rem; position: relative; z-index: 1; }
+
+        /* ── Main Content ────────────────────────────────────────────── */
+        .main { max-width: 1200px; margin: 0 auto; padding: 1.5rem 2rem 4rem; }
+
+        /* ── Cards Grid ──────────────────────────────────────────────── */
+        .cards-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .card {
+            background: white;
+            border-radius: 14px;
+            padding: 1.25rem;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.04);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        }
+        .card-label {
+            font-size: 0.68rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #718096;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+        .card-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #1a202c;
+        }
+        .card-value.green { color: #38a169; }
+        .card-sub {
+            font-size: 0.75rem;
+            color: #718096;
+            margin-top: 0.3rem;
+        }
+        .card-icon {
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+        }
+
+        /* ── Quick Actions ───────────────────────────────────────────── */
+        .section-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #1a365d;
+            margin-bottom: 0.75rem;
+        }
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        .qa-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1.1rem 0.75rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: #1a202c;
+        }
+        .qa-btn:hover {
+            border-color: #4299e1;
+            background: #ebf8ff;
+            transform: translateY(-2px);
+        }
+        .qa-icon {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem;
+        }
+        .qa-label { font-size: 0.75rem; font-weight: 500; text-align: center; }
+
+        /* ── Recent Transactions ──────────────────────────────────────── */
+        .txn-table {
+            background: white;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.04);
+        }
+        .txn-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid #f0f4f8;
+        }
+        .txn-header h3 { font-size: 0.9rem; color: #1a365d; }
+        .txn-header a {
+            font-size: 0.75rem;
+            color: #4299e1;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .txn-row {
+            display: flex;
+            align-items: center;
+            padding: 0.85rem 1.25rem;
+            border-bottom: 1px solid #f7fafc;
+            transition: background 0.15s;
+        }
+        .txn-row:last-child { border-bottom: none; }
+        .txn-row:hover { background: #f7fafc; }
+        .txn-icon {
+            width: 36px; height: 36px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.9rem;
+            margin-right: 0.75rem;
+            flex-shrink: 0;
+        }
+        .txn-info { flex: 1; }
+        .txn-name { font-size: 0.85rem; font-weight: 500; }
+        .txn-date { font-size: 0.7rem; color: #a0aec0; }
+        .txn-amount { font-weight: 600; font-size: 0.9rem; }
+        .txn-amount.debit { color: #e53e3e; }
+        .txn-amount.credit { color: #38a169; }
+
+        /* ── Chatbot FAB ─────────────────────────────────────────────── */
+        .chatbot-fab {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            cursor: pointer;
+        }
+        .chatbot-fab-label {
+            background: white;
+            padding: 0.5rem 0.9rem;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #1a365d;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+            animation: labelPulse 3s ease-in-out infinite;
+            white-space: nowrap;
+        }
+        @keyframes labelPulse {
+            0%,100% { box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+            50% { box-shadow: 0 4px 20px rgba(0,0,0,0.18); }
+        }
+        .chatbot-fab-btn {
+            width: 58px; height: 58px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #1a365d, #2a4a7f);
+            color: white;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 20px rgba(26,54,93,0.35);
+            transition: all 0.3s;
+            animation: fabBreathe 2.5s ease-in-out infinite;
+            position: relative;
+        }
+        .chatbot-fab-btn:hover {
+            transform: scale(1.08);
+            box-shadow: 0 6px 28px rgba(26,54,93,0.45);
+        }
+        @keyframes fabBreathe {
+            0%,100% { box-shadow: 0 4px 20px rgba(26,54,93,0.35); }
+            50% { box-shadow: 0 6px 28px rgba(26,54,93,0.50); }
+        }
+        .chatbot-fab-btn .fab-ring {
+            position: absolute;
+            inset: -4px;
+            border-radius: 50%;
+            border: 2px solid rgba(66,153,225,0.4);
+            animation: ringPulse 2s ease-out infinite;
+        }
+        @keyframes ringPulse {
+            0% { transform: scale(1); opacity: 0.6; }
+            100% { transform: scale(1.4); opacity: 0; }
+        }
+        .fab-badge {
+            position: absolute;
+            top: -2px; right: -2px;
+            width: 16px; height: 16px;
+            border-radius: 50%;
+            background: #38a169;
+            border: 2px solid white;
+            animation: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Top Navigation -->
+    <nav class="topnav">
+        <div class="topnav-logo">
+            <div class="topnav-logo-icon">CB</div>
+            <span>Contoso Bank</span>
+        </div>
+        <div class="topnav-links">
+            <a href="#" class="active">Home</a>
+            <a href="#">Accounts</a>
+            <a href="#">Cards</a>
+            <a href="#">Loans</a>
+            <a href="#">Investments</a>
+            <a href="#">Payments</a>
+        </div>
+        <div class="topnav-right">
+            <div class="topnav-user">
+                <div class="topnav-avatar" id="nav-avatar"></div>
+                <span class="topnav-username" id="nav-username"></span>
+            </div>
+            <button class="btn-logout" onclick="logout()">Sign Out</button>
+        </div>
+    </nav>
+
+    <!-- Welcome Banner -->
+    <div class="welcome-banner">
+        <h1 id="greeting"></h1>
+        <p>Here's your financial snapshot for today</p>
+    </div>
+
+    <div class="main">
+        <!-- Account Cards -->
+        <div class="cards-row" id="account-cards"></div>
+
+        <!-- Quick Actions -->
+        <div class="section-title">Quick Actions</div>
+        <div class="quick-actions">
+            <div class="qa-btn" onclick="openChat()">
+                <div class="qa-icon" style="background:#ebf8ff;color:#2b6cb0">🎧</div>
+                <span class="qa-label">Talk to RM</span>
+            </div>
+            <div class="qa-btn">
+                <div class="qa-icon" style="background:#faf5ff;color:#6b46c1">💸</div>
+                <span class="qa-label">Send Money</span>
+            </div>
+            <div class="qa-btn">
+                <div class="qa-icon" style="background:#fffaf0;color:#c05621">📄</div>
+                <span class="qa-label">Statements</span>
+            </div>
+            <div class="qa-btn">
+                <div class="qa-icon" style="background:#f0fff4;color:#276749">💳</div>
+                <span class="qa-label">Card Controls</span>
+            </div>
+            <div class="qa-btn">
+                <div class="qa-icon" style="background:#fff5f5;color:#c53030">🏠</div>
+                <span class="qa-label">Loan EMI</span>
+            </div>
+            <div class="qa-btn">
+                <div class="qa-icon" style="background:#fefce8;color:#92400e">📊</div>
+                <span class="qa-label">Investments</span>
+            </div>
+        </div>
+
+        <!-- Recent Transactions -->
+        <div class="txn-table">
+            <div class="txn-header">
+                <h3>Recent Transactions</h3>
+                <a href="#">View All →</a>
+            </div>
+            <div id="txn-list"></div>
+        </div>
+    </div>
+
+    <!-- Chatbot FAB -->
+    <div class="chatbot-fab" onclick="openChat()">
+        <div class="chatbot-fab-label">Talk to your Virtual RM</div>
+        <button class="chatbot-fab-btn">
+            <div class="fab-ring"></div>
+            <div class="fab-badge"></div>
+            🎧
+        </button>
+    </div>
+
+    <script>
+        // ── Demo user data ───────────────────────────────────────────────
+        const USERS = {
+            rajesh: {
+                name: 'Rajesh Kumar', avatar: 'RK', color: '#4299e1', badge: 'Premium',
+                accounts: [
+                    { label: 'Savings Account', value: '₹4,85,230', sub: '•••• 4521 · 4.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Fixed Deposit', value: '₹10,00,000', sub: '7.1% · Matures Dec 2026', icon: '📈', iconBg: '#f0fff4' },
+                    { label: 'Credit Card Due', value: '₹12,450', sub: 'Contoso Platinum · Due 15 Jun', icon: '💳', iconBg: '#faf5ff' },
+                    { label: 'Mutual Funds', value: '₹3,24,500', sub: '↑ 12.3% returns', icon: '📊', iconBg: '#fffaf0', valueClass: 'green' },
+                ],
+                transactions: [
+                    { name: 'Amazon India', date: '28 May 2026', amount: '- ₹4,299', type: 'debit', icon: '🛒', iconBg: '#fffaf0' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹1,25,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Swiggy', date: '27 May 2026', amount: '- ₹856', type: 'debit', icon: '🍕', iconBg: '#fff5f5' },
+                    { name: 'Electricity Bill', date: '26 May 2026', amount: '- ₹2,340', type: 'debit', icon: '⚡', iconBg: '#fefce8' },
+                    { name: 'UPI - Priya S.', date: '25 May 2026', amount: '- ₹5,000', type: 'debit', icon: '📱', iconBg: '#ebf8ff' },
+                ],
+            },
+            priya: {
+                name: 'Priya Sharma', avatar: 'PS', color: '#9f7aea', badge: 'Gold',
+                accounts: [
+                    { label: 'Savings Account', value: '₹1,32,800', sub: '•••• 8734 · 3.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Home Loan', value: '₹42,15,000', sub: 'EMI ₹38,500 · 8.5% · 18 yrs left', icon: '🏠', iconBg: '#fff5f5' },
+                    { label: 'Credit Card Due', value: '₹8,920', sub: 'Contoso Gold · Due 10 Jun', icon: '💳', iconBg: '#faf5ff' },
+                    { label: 'RD Balance', value: '₹72,000', sub: '₹6,000/mo · 6.8% p.a.', icon: '💎', iconBg: '#fefce8' },
+                ],
+                transactions: [
+                    { name: 'Home Loan EMI', date: '28 May 2026', amount: '- ₹38,500', type: 'debit', icon: '🏠', iconBg: '#fff5f5' },
+                    { name: 'Flipkart', date: '27 May 2026', amount: '- ₹7,499', type: 'debit', icon: '🛍️', iconBg: '#fffaf0' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹95,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Netflix', date: '26 May 2026', amount: '- ₹649', type: 'debit', icon: '🎬', iconBg: '#faf5ff' },
+                    { name: 'RD Auto-Debit', date: '25 May 2026', amount: '- ₹6,000', type: 'debit', icon: '💎', iconBg: '#fefce8' },
+                ],
+            },
+            amit: {
+                name: 'Amit Patel', avatar: 'AP', color: '#ed8936', badge: 'Classic',
+                accounts: [
+                    { label: 'Salary Account', value: '₹78,450', sub: '•••• 2198 · 3.0% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Personal Loan', value: '₹2,80,000', sub: 'EMI ₹9,800 · 11% · 3 yrs left', icon: '📋', iconBg: '#fffaf0' },
+                    { label: 'Debit Card', value: 'Active', sub: 'Visa Classic · Limit ₹1L/day', icon: '💳', iconBg: '#faf5ff' },
+                    { label: 'PPF Balance', value: '₹1,85,000', sub: '7.1% p.a. · 12 yrs left', icon: '🔒', iconBg: '#f0fff4' },
+                ],
+                transactions: [
+                    { name: 'Zomato', date: '28 May 2026', amount: '- ₹1,245', type: 'debit', icon: '🍔', iconBg: '#fff5f5' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹65,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Personal Loan EMI', date: '26 May 2026', amount: '- ₹9,800', type: 'debit', icon: '📋', iconBg: '#fffaf0' },
+                    { name: 'Petrol - HPCL', date: '25 May 2026', amount: '- ₹2,100', type: 'debit', icon: '⛽', iconBg: '#fefce8' },
+                    { name: 'UPI - Rent', date: '24 May 2026', amount: '- ₹18,000', type: 'debit', icon: '🏡', iconBg: '#ebf8ff' },
+                ],
+            },
+            sneha: {
+                name: 'Sneha Reddy', avatar: 'SR', color: '#38a169', badge: 'Platinum',
+                accounts: [
+                    { label: 'Savings Account', value: '₹2,45,600', sub: '•••• 6673 · 4.0% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Contoso Platinum Card', value: '₹45,230', sub: 'Limit ₹3L · Due 20 Jun', icon: '💳', iconBg: '#faf5ff' },
+                    { label: 'Rewards Points', value: '24,560', sub: '≈ ₹6,140 value', icon: '🎁', iconBg: '#fffaf0', valueClass: 'green' },
+                    { label: 'SmartSaver FD', value: '₹5,00,000', sub: '7.25% · Auto-sweep', icon: '📈', iconBg: '#f0fff4' },
+                ],
+                transactions: [
+                    { name: 'Myntra Shopping', date: '28 May 2026', amount: '- ₹8,299', type: 'debit', icon: '👗', iconBg: '#faf5ff' },
+                    { name: 'Credit Card Cashback', date: '27 May 2026', amount: '+ ₹1,250', type: 'credit', icon: '🎁', iconBg: '#f0fff4' },
+                    { name: 'Uber', date: '27 May 2026', amount: '- ₹540', type: 'debit', icon: '🚗', iconBg: '#fffaf0' },
+                    { name: 'Salary Credit', date: '26 May 2026', amount: '+ ₹1,10,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Spotify', date: '25 May 2026', amount: '- ₹119', type: 'debit', icon: '🎵', iconBg: '#ebf8ff' },
+                ],
+            },
+            vikram: {
+                name: 'Vikram Singh', avatar: 'VS', color: '#e53e3e', badge: 'Elite',
+                accounts: [
+                    { label: 'Premium Savings', value: '₹12,45,000', sub: '•••• 1190 · 5.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Fixed Deposits', value: '₹25,00,000', sub: '3 FDs · Avg 7.3% p.a.', icon: '📈', iconBg: '#f0fff4' },
+                    { label: 'Equity Portfolio', value: '₹18,72,000', sub: '↑ 22.4% YTD returns', icon: '📊', iconBg: '#fffaf0', valueClass: 'green' },
+                    { label: 'Tax Saver FD', value: '₹1,50,000', sub: '80C · Locked till Mar 2028', icon: '🔒', iconBg: '#fefce8' },
+                ],
+                transactions: [
+                    { name: 'SIP - HDFC Flexi', date: '28 May 2026', amount: '- ₹25,000', type: 'debit', icon: '📊', iconBg: '#fffaf0' },
+                    { name: 'Dividend - TCS', date: '27 May 2026', amount: '+ ₹8,400', type: 'credit', icon: '📈', iconBg: '#f0fff4' },
+                    { name: 'FD Interest', date: '26 May 2026', amount: '+ ₹15,200', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Insurance Premium', date: '25 May 2026', amount: '- ₹12,500', type: 'debit', icon: '🛡️', iconBg: '#ebf8ff' },
+                    { name: 'Gold ETF Purchase', date: '24 May 2026', amount: '- ₹50,000', type: 'debit', icon: '🥇', iconBg: '#fefce8' },
+                ],
+            },
+        };
+
+        // ── Initialize page ──────────────────────────────────────────────
+        const userId = sessionStorage.getItem('contosoUser');
+        if (!userId || !USERS[userId]) {
+            window.location.href = '/login';
+        }
+
+        const user = USERS[userId];
+
+        // Greeting
+        const hour = new Date().getHours();
+        const greet = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+        document.getElementById('greeting').textContent = `${greet}, ${user.name.split(' ')[0]}! 👋`;
+
+        // Nav avatar
+        document.getElementById('nav-avatar').textContent = user.avatar;
+        document.getElementById('nav-avatar').style.background = user.color;
+        document.getElementById('nav-username').textContent = user.name;
+
+        // Account cards
+        const cardsEl = document.getElementById('account-cards');
+        user.accounts.forEach(a => {
+            cardsEl.innerHTML += `
+                <div class="card">
+                    <div class="card-icon" style="background:${a.iconBg}">${a.icon}</div>
+                    <div class="card-label">${a.label}</div>
+                    <div class="card-value ${a.valueClass || ''}">${a.value}</div>
+                    <div class="card-sub">${a.sub}</div>
+                </div>
+            `;
+        });
+
+        // Transactions
+        const txnEl = document.getElementById('txn-list');
+        user.transactions.forEach(t => {
+            txnEl.innerHTML += `
+                <div class="txn-row">
+                    <div class="txn-icon" style="background:${t.iconBg}">${t.icon}</div>
+                    <div class="txn-info">
+                        <div class="txn-name">${t.name}</div>
+                        <div class="txn-date">${t.date}</div>
+                    </div>
+                    <div class="txn-amount ${t.type}">${t.amount}</div>
+                </div>
+            `;
+        });
+
+        function openChat() { window.location.href = '/chat'; }
+        function logout() { sessionStorage.removeItem('contosoUser'); window.location.href = '/login'; }
+    </script>
+</body>
+</html>
