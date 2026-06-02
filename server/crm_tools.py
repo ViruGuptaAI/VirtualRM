@@ -528,6 +528,93 @@ def calculate_emi(principal_lakhs: float, annual_rate: float, tenure_years: int)
     }
 
 
+# ── Collateral / Property Assessment ──────────────────────────────────────────
+
+# LTV ratios by property type and city tier (RBI-style guidelines)
+# City tier is determined by the agent from city name + pin code — not hardcoded.
+_LTV_MATRIX = {
+    # (property_type, city_tier) → LTV ratio
+    ("residential_apartment", "tier1"): 0.75,
+    ("residential_apartment", "tier2"): 0.70,
+    ("residential_apartment", "tier3"): 0.65,
+    ("independent_house", "tier1"): 0.70,
+    ("independent_house", "tier2"): 0.65,
+    ("independent_house", "tier3"): 0.60,
+    ("villa", "tier1"): 0.70,
+    ("villa", "tier2"): 0.65,
+    ("villa", "tier3"): 0.60,
+    ("plot", "tier1"): 0.60,
+    ("plot", "tier2"): 0.55,
+    ("plot", "tier3"): 0.50,
+    ("commercial", "tier1"): 0.60,
+    ("commercial", "tier2"): 0.55,
+    ("commercial", "tier3"): 0.50,
+    ("under_construction", "tier1"): 0.70,
+    ("under_construction", "tier2"): 0.65,
+    ("under_construction", "tier3"): 0.60,
+}
+
+
+def assess_collateral(
+    property_type: str,
+    city: str,
+    pin_code: str,
+    city_tier: str,
+    estimated_value_lakhs: float,
+) -> dict:
+    """
+    Assess collateral for a home loan.
+    city_tier is determined by the agent from city name + pin code.
+    Accepts: 'tier1', 'tier2', or 'tier3'.
+    Returns applicable LTV ratio and max eligible loan amount.
+    """
+    tier_key = city_tier.strip().lower().replace(" ", "")
+    if tier_key in ("tier1", "metro"):
+        tier_key = "tier1"
+        tier_label = "Tier 1 (Metro)"
+    elif tier_key in ("tier2",):
+        tier_key = "tier2"
+        tier_label = "Tier 2"
+    else:
+        tier_key = "tier3"
+        tier_label = "Tier 3 / Rural"
+
+    prop_key = property_type.strip().lower().replace(" ", "_")
+    ltv = _LTV_MATRIX.get((prop_key, tier_key))
+    if ltv is None:
+        # Fallback: use conservative LTV
+        ltv = 0.60
+        prop_label = property_type.title()
+    else:
+        prop_label = property_type.replace("_", " ").title()
+
+    estimated_value = estimated_value_lakhs * 1_00_000
+    max_loan = estimated_value * ltv
+
+    def _inr_readable(val: float) -> str:
+        if val >= 1_00_00_000:
+            return f"₹{val / 1_00_00_000:.2f} crore"
+        elif val >= 1_00_000:
+            return f"₹{val / 1_00_000:.2f} lakh"
+        else:
+            return f"₹{val:,.0f}"
+
+    return {
+        "property_type": prop_label,
+        "city": city.strip().title(),
+        "pin_code": pin_code.strip(),
+        "city_tier": tier_label,
+        "estimated_property_value": _inr_readable(estimated_value),
+        "estimated_property_value_lakhs": estimated_value_lakhs,
+        "ltv_ratio": ltv,
+        "ltv_percentage": f"{int(ltv * 100)}%",
+        "max_eligible_loan": _inr_readable(max_loan),
+        "max_eligible_loan_lakhs": round(max_loan / 1_00_000, 2),
+        "guideline": f"As per bank guidelines, for a {prop_label} in a {tier_label} city, we can finance up to {int(ltv * 100)}% of the property value.",
+        "note": "Final loan amount subject to property valuation by our empanelled valuers and title verification.",
+    }
+
+
 def get_competitor_rates(product_name: str) -> dict:
     """Get competitor bank rates for a loan product for negotiation context."""
     rates = _query(
@@ -749,6 +836,7 @@ TOOL_FUNCTIONS = {
     "get_negotiation_terms": get_negotiation_terms,
     "calculate_emi": calculate_emi,
     "get_competitor_rates": get_competitor_rates,
+    "assess_collateral": assess_collateral,
     # CIBIL & RBI
     "check_cibil_score": check_cibil_score,
     "check_rbi_repo_rate": check_rbi_repo_rate,

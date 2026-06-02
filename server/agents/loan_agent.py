@@ -185,4 +185,37 @@ LOAN_TOOLS = [
         "description": "Get the current RBI repo rate and monetary policy rates. Useful for explaining how loan rates are benchmarked and whether rates may change soon.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
+    {
+        "type": "function",
+        "name": "assess_collateral",
+        "description": "Assess property collateral for a home loan. Takes property type, city, pin code, city tier (YOU determine this from city name and pin code), and estimated market value. Returns applicable LTV ratio and maximum eligible loan amount. Use this for all home loan inquiries AFTER the customer provides property details.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "property_type": {
+                    "type": "string",
+                    "enum": ["residential_apartment", "independent_house", "villa", "plot", "commercial", "under_construction"],
+                    "description": "Type of property. Map customer language: flat/apartment → residential_apartment, house/bungalow → independent_house, under construction/new project → under_construction.",
+                },
+                "city": {
+                    "type": "string",
+                    "description": "City where the property is located (e.g. 'Bengaluru', 'Mumbai', 'Jaipur').",
+                },
+                "pin_code": {
+                    "type": "string",
+                    "description": "6-digit Indian PIN code of the property location (e.g. '560034', '400001').",
+                },
+                "city_tier": {
+                    "type": "string",
+                    "enum": ["tier1", "tier2", "tier3"],
+                    "description": "City tier YOU determine from the city name and pin code. tier1 = All metro cities (Mumbai, Delhi/NCR, Bengaluru, Hyderabad, Chennai, Kolkata, Pune, Ahmedabad and satellite areas). tier2 = All other cities and towns (state capitals, district HQs, any urban area). tier3 = Rural areas only (taluks, villages, tehsils, outside city limits).",
+                },
+                "estimated_value_lakhs": {
+                    "type": "number",
+                    "description": "Customer's estimated market value of the property in LAKHS. Examples: 50 lakh = 50, 1 crore = 100, 2.5 crore = 250.",
+                },
+            },
+            "required": ["property_type", "city", "pin_code", "city_tier", "estimated_value_lakhs"],
+        },
+    },
 ]

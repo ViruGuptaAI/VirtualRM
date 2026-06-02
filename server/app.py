@@ -54,6 +54,30 @@ logger = logging.getLogger("virtual_rm")
 logging.getLogger("websockets").setLevel(logging.WARNING)
 logging.getLogger("azure").setLevel(logging.WARNING)
 
+# ── Tool name redaction (safety net for agent transcripts) ───────────────────
+import re as _re
+_TOOL_NAMES_FOR_REDACTION = [
+    "get_customer_profile", "get_customer_summary", "get_eligibility_assessment",
+    "get_credit_card_details", "get_credit_card_transactions", "get_reward_points",
+    "get_card_spending_analysis", "check_card_upgrade_eligibility",
+    "get_active_loans", "get_loan_product_details", "get_preapproved_offers",
+    "get_negotiation_terms", "calculate_emi", "get_competitor_rates",
+    "check_cibil_score", "check_rbi_repo_rate", "assess_collateral",
+    "get_account_details", "get_fixed_deposits", "get_recurring_deposits",
+    "get_savings_transactions", "get_fd_rate_card", "get_debit_card_details",
+    "get_investments", "get_all_transactions", "route_to_agent", "play_hold_music",
+]
+_TOOL_NAME_PATTERN = _re.compile(
+    r"\b(?:" + "|".join(_re.escape(n) for n in _TOOL_NAMES_FOR_REDACTION) + r")\b",
+    _re.IGNORECASE,
+)
+
+
+def _redact_tool_names(text: str) -> str:
+    """Replace any leaked tool names in agent speech with 'our system'."""
+    return _TOOL_NAME_PATTERN.sub("our system", text)
+
+
 # ── Friendly labels for tool calls (shown in browser UI) ─────────────────────
 TOOL_DISPLAY_LABELS = {
     "get_customer_profile": "Looking up your profile",
@@ -82,6 +106,7 @@ TOOL_DISPLAY_LABELS = {
     "get_all_transactions": "Pulling transaction history",
     "route_to_agent": "Connecting you to a specialist",
     "play_hold_music": "Checking with supervisor",
+    "assess_collateral": "Assessing property collateral",
 }
 
 # ── Cached credential (avoids spawning az.cmd on every connection) ────────────
@@ -113,6 +138,16 @@ def build_session_config(
     instructions = base_prompt
     if sop_text:
         instructions += "\n" + sop_text
+
+    # Universal guardrail — appended to every agent's instructions
+    instructions += (
+        "\n\n# CRITICAL: NEVER EXPOSE TOOL OR FUNCTION NAMES\n"
+        "- NEVER say tool names, function names, or API names to the customer. "
+        "Examples of what you must NEVER say: 'get_loan_product_details', 'assess_collateral', 'calculate_emi', 'check_cibil_score', etc.\n"
+        "- Instead of 'Let me call get_loan_product_details', say 'Let me look up the details for you.'\n"
+        "- Instead of 'Running assess_collateral', say 'Let me assess the property details.'\n"
+        "- A real bank RM would NEVER say function names. Speak naturally.\n"
+    )
 
     # Inject customer name as context (greeting is handled by response.create)
     if customer_name:
@@ -299,6 +334,7 @@ class VoiceLiveSession:
         self._last_vl_event_ts: float = time.monotonic()  # heartbeat tracking
         self._response_watchdog: asyncio.Task | None = None  # safety net for dead sessions
         self._last_transcription_empty: bool = True  # track if last speech had real content
+        self._tool_call_counts: dict[str, int] = {}  # loop guard: per-tool call count within a response cycle
 
     # ── 1. Connect to Voice Live ─────────────────────────────────────────
 
@@ -491,6 +527,7 @@ class VoiceLiveSession:
 
                     # ── User transcription ────────────────────────────────
                     case "conversation.item.input_audio_transcription.completed":
+                        self._tool_call_counts.clear()  # reset loop guard on new user input
                         transcript = event.get("transcript", "")
                         stt_lang = event.get("language", "")
                         # Track whether this was real speech or just noise
@@ -551,6 +588,8 @@ class VoiceLiveSession:
                         # Use the agent that started this response, not _current_agent
                         # (which may have changed due to handoff mid-response)
                         agent_name = AGENT_REGISTRY[self._response_agent]["name"]
+                        # Redact any leaked tool names before logging/displaying
+                        transcript = _redact_tool_names(transcript)
                         logger.info(
                             "[%s] AGENT (%s): %s",
                             self._call_id,
@@ -672,6 +711,37 @@ class VoiceLiveSession:
         call_id = event.get("call_id", "")
         fn_name = event.get("name", "")
         args_str = event.get("arguments", "{}")
+
+        # ── Loop guard: cap repeated calls to the same tool ──────────
+        MAX_TOOL_CALLS_PER_CYCLE = 3
+        self._tool_call_counts[fn_name] = self._tool_call_counts.get(fn_name, 0) + 1
+        if self._tool_call_counts[fn_name] > MAX_TOOL_CALLS_PER_CYCLE:
+            blocked_count = self._tool_call_counts[fn_name] - MAX_TOOL_CALLS_PER_CYCLE
+            logger.warning(
+                "[%s] Tool loop detected: %s called %d times (blocked #%d) — returning error",
+                self._call_id, fn_name, self._tool_call_counts[fn_name], blocked_count,
+            )
+            await self._send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps({
+                        "error": f"STOP. Tool '{fn_name}' already called {MAX_TOOL_CALLS_PER_CYCLE} times. "
+                                 "Do NOT call this tool again. Respond to the customer using the data you already have.",
+                    }),
+                },
+            })
+            # Only give the model ONE more chance (first blocked call).
+            # After that, stop creating responses to break the loop.
+            if blocked_count <= 1:
+                await self._safe_response_create()
+            else:
+                logger.warning(
+                    "[%s] Suppressing response.create to break tool loop for %s",
+                    self._call_id, fn_name,
+                )
+            return
 
         logger.info(
             "[%s] Function call: %s(%s)",
