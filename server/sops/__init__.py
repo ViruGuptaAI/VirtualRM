@@ -57,7 +57,7 @@ SOP_REGISTRY: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
     ),
     ("loan", "new_inquiry"): (
         LOAN_NEW_INQUIRY,
-        frozenset({"get_preapproved_offers", "get_loan_product_details", "calculate_emi", "get_eligibility_assessment", "check_cibil_score", "check_rbi_repo_rate", "get_negotiation_terms", "get_competitor_rates", "play_hold_music"}),
+        frozenset({"get_preapproved_offers", "get_loan_product_details", "calculate_emi", "get_eligibility_assessment", "check_cibil_score", "check_rbi_repo_rate", "get_negotiation_terms", "get_competitor_rates", "play_hold_music", "assess_collateral"}),
     ),
     ("loan", "foreclosure"): (
         LOAN_FORECLOSURE,

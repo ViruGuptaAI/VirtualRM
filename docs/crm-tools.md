@@ -375,7 +375,7 @@ Last 15 transactions across all account types.
 Mock CIBIL TransUnion bureau pull. Returns score, band (Excellent/Good/Fair/Poor), key factors, active accounts count, and debt-to-income ratio.
 
 #### `check_rbi_repo_rate()`
-Mock RBI monetary policy data. Returns repo rate (6.25%), reverse repo (3.35%), last rate cut (Apr 2026, 25 bps), next MPC meeting date.
+Mock RBI monetary policy data. Returns repo rate (5.25%), reverse repo (3.35%), last rate cut (Apr 2026, 25 bps), next MPC meeting date.
 
 ---
 

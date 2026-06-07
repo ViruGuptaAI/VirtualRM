@@ -732,15 +732,33 @@ class VoiceLiveSession:
                     }),
                 },
             })
-            # Only give the model ONE more chance (first blocked call).
-            # After that, stop creating responses to break the loop.
             if blocked_count <= 1:
+                # Give the model ONE more chance (first blocked call).
                 await self._safe_response_create()
             else:
+                # Force a speech-only response — inject a strong instruction
+                # and prevent any further tool calls so the model MUST speak.
                 logger.warning(
-                    "[%s] Suppressing response.create to break tool loop for %s",
+                    "[%s] Forcing speech-only response to break tool loop for %s",
                     self._call_id, fn_name,
                 )
+                await self._send_json({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{
+                            "type": "input_text",
+                            "text": (
+                                "[System: CRITICAL — You are stuck in a tool loop. "
+                                "Do NOT call any tool. Respond to the customer RIGHT NOW "
+                                "using the information you already have. Summarize what you know "
+                                "and ask the customer how to proceed.]"
+                            ),
+                        }],
+                    },
+                })
+                await self._safe_response_create()
             return
 
         logger.info(

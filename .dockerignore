@@ -1,0 +1,15 @@
+.venv/
+venv/
+.env
+.env.local
+.git/
+__pycache__/
+*.pyc
+*.pyo
+docs/
+*.md
+.gitignore
+pyproject.toml
+server/.venv/
+server/crm.db
+server/server/

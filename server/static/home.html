@@ -410,19 +410,19 @@
         // ── Demo user data ───────────────────────────────────────────────
         const USERS = {
             rajesh: {
-                name: 'Rajesh Kumar', avatar: 'RK', color: '#4299e1', badge: 'Premium',
+                name: 'Rajesh Kumar', avatar: 'RK', color: '#e53e3e', badge: 'Elite',
                 accounts: [
-                    { label: 'Savings Account', value: '₹4,85,230', sub: '•••• 4521 · 4.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
-                    { label: 'Fixed Deposit', value: '₹10,00,000', sub: '7.1% · Matures Dec 2026', icon: '📈', iconBg: '#f0fff4' },
-                    { label: 'Credit Card Due', value: '₹12,450', sub: 'Contoso Platinum · Due 15 Jun', icon: '💳', iconBg: '#faf5ff' },
-                    { label: 'Mutual Funds', value: '₹3,24,500', sub: '↑ 12.3% returns', icon: '📊', iconBg: '#fffaf0', valueClass: 'green' },
+                    { label: 'Premium Savings', value: '₹28,50,000', sub: '•••• 4521 · 5.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Fixed Deposits', value: '₹36,50,000', sub: '3 FDs · Avg 7.25% p.a.', icon: '📈', iconBg: '#f0fff4' },
+                    { label: 'Equity Portfolio', value: '₹18,00,000', sub: '↑ 50% returns', icon: '📊', iconBg: '#fffaf0', valueClass: 'green' },
+                    { label: 'Tax Saver FD', value: '₹1,50,000', sub: '80C · Locked till Jan 2030', icon: '🔒', iconBg: '#fefce8' },
                 ],
                 transactions: [
-                    { name: 'Amazon India', date: '28 May 2026', amount: '- ₹4,299', type: 'debit', icon: '🛒', iconBg: '#fffaf0' },
-                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹1,25,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
-                    { name: 'Swiggy', date: '27 May 2026', amount: '- ₹856', type: 'debit', icon: '🍕', iconBg: '#fff5f5' },
-                    { name: 'Electricity Bill', date: '26 May 2026', amount: '- ₹2,340', type: 'debit', icon: '⚡', iconBg: '#fefce8' },
-                    { name: 'UPI - Priya S.', date: '25 May 2026', amount: '- ₹5,000', type: 'debit', icon: '📱', iconBg: '#ebf8ff' },
+                    { name: 'SIP - ICICI Pru Bluechip', date: '28 May 2026', amount: '- ₹30,000', type: 'debit', icon: '📊', iconBg: '#fffaf0' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹3,50,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'FD Interest Credit', date: '26 May 2026', amount: '+ ₹18,500', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'NPS Contribution', date: '25 May 2026', amount: '- ₹20,000', type: 'debit', icon: '🛡️', iconBg: '#ebf8ff' },
+                    { name: 'RD Installment', date: '23 May 2026', amount: '- ₹25,000', type: 'debit', icon: '💎', iconBg: '#fefce8' },
                 ],
             },
             priya: {
@@ -487,6 +487,38 @@
                     { name: 'FD Interest', date: '26 May 2026', amount: '+ ₹15,200', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
                     { name: 'Insurance Premium', date: '25 May 2026', amount: '- ₹12,500', type: 'debit', icon: '🛡️', iconBg: '#ebf8ff' },
                     { name: 'Gold ETF Purchase', date: '24 May 2026', amount: '- ₹50,000', type: 'debit', icon: '🥇', iconBg: '#fefce8' },
+                ],
+            },
+            viru: {
+                name: 'Viru Gupta', avatar: 'VG', color: '#4299e1', badge: 'Premium',
+                accounts: [
+                    { label: 'Savings Account', value: '₹4,85,230', sub: '•••• 7788 · 4.5% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Home Loan', value: '₹42,80,000', sub: 'EMI ₹39,200 · 8.9% · 27 yrs left', icon: '🏠', iconBg: '#fff5f5' },
+                    { label: 'Credit Card Due', value: '₹12,450', sub: 'Contoso Platinum · Due 15 Jun', icon: '💳', iconBg: '#faf5ff' },
+                    { label: 'Fixed Deposits', value: '₹7,00,000', sub: '2 FDs · Avg 6.95% p.a.', icon: '📈', iconBg: '#f0fff4' },
+                ],
+                transactions: [
+                    { name: 'Amazon India', date: '28 May 2026', amount: '- ₹4,299', type: 'debit', icon: '🛒', iconBg: '#fffaf0' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹1,25,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Swiggy', date: '27 May 2026', amount: '- ₹856', type: 'debit', icon: '🍕', iconBg: '#fff5f5' },
+                    { name: 'Electricity Bill', date: '26 May 2026', amount: '- ₹2,340', type: 'debit', icon: '⚡', iconBg: '#fefce8' },
+                    { name: 'RD Installment', date: '23 May 2026', amount: '- ₹10,000', type: 'debit', icon: '💎', iconBg: '#fefce8' },
+                ],
+            },
+            harshal: {
+                name: 'Harshal Patil', avatar: 'HP', color: '#ed8936', badge: 'Classic',
+                accounts: [
+                    { label: 'Salary Account', value: '₹64,500', sub: '•••• 3342 · 3.0% p.a.', icon: '🏦', iconBg: '#ebf8ff' },
+                    { label: 'Car Loan', value: '₹4,80,000', sub: 'EMI ₹14,500 · 9.5% · 4.5 yrs left', icon: '🚗', iconBg: '#fffaf0' },
+                    { label: 'Education Loan', value: '₹3,50,000', sub: 'EMI ₹8,200 · 10.25% · 3.5 yrs left', icon: '🎓', iconBg: '#fff5f5' },
+                    { label: 'PPF Balance', value: '₹85,000', sub: '7.1% p.a.', icon: '🔒', iconBg: '#f0fff4' },
+                ],
+                transactions: [
+                    { name: 'Swiggy', date: '28 May 2026', amount: '- ₹680', type: 'debit', icon: '🍕', iconBg: '#fff5f5' },
+                    { name: 'Salary Credit', date: '27 May 2026', amount: '+ ₹72,000', type: 'credit', icon: '💰', iconBg: '#f0fff4' },
+                    { name: 'Car Loan EMI', date: '26 May 2026', amount: '- ₹14,500', type: 'debit', icon: '🚗', iconBg: '#fffaf0' },
+                    { name: 'Education Loan EMI', date: '25 May 2026', amount: '- ₹8,200', type: 'debit', icon: '🎓', iconBg: '#fff5f5' },
+                    { name: 'UPI - Rent', date: '24 May 2026', amount: '- ₹12,000', type: 'debit', icon: '🏡', iconBg: '#ebf8ff' },
                 ],
             },
         };
