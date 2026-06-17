@@ -794,27 +794,26 @@ def check_cibil_score(customer_id: str) -> dict:
 def check_rbi_repo_rate() -> dict:
     """
     Returns the current RBI repo rate and related policy rates.
-    Simulates a real-time RBI data feed.
+    Static mock values for the demo.
     """
     return {
         "source": "Reserve Bank of India",
-        "as_of": "2026-05-15",
-        "repo_rate": 6.25,
+        "as_of": "2026-06-16",
+        "repo_rate": 5.25,
         "reverse_repo_rate": 3.35,
-        "marginal_standing_facility_rate": 6.50,
-        "bank_rate": 6.50,
+        "marginal_standing_facility_rate": 5.50,
+        "bank_rate": 5.50,
         "crr": 4.0,
         "slr": 18.0,
         "last_change": {
-            "date": "2026-04-09",
-            "action": "Cut by 25 bps",
-            "previous_rate": 6.50,
+            "date": "2025-12-05",
+            "action": "Held steady (neutral stance)",
+            "previous_rate": 5.25,
         },
-        "next_mpc_meeting": "2026-06-04",
-        "outlook": "Accommodative — further cuts possible if inflation stays below 4.5%",
+        "next_mpc_meeting": "2026-08-05",
+        "outlook": "Neutral — rate held to balance growth and inflation",
         "note": "Home loan rates typically benchmarked to repo rate. Current spread: 2.5-4.0% above repo.",
     }
-
 
 # ─── Function dispatch map ────────────────────────────────────────────────────
 

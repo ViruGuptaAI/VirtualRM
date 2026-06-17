@@ -43,6 +43,10 @@ MANAGED_IDENTITY_CLIENT_ID = os.getenv(
 BYOM_PROFILE = os.getenv("BYOM_PROFILE", "")
 FOUNDRY_RESOURCE_OVERRIDE = os.getenv("FOUNDRY_RESOURCE_OVERRIDE", "")
 
+# ── Conversation summarization (token optimization for long calls) ───────────
+SUMMARY_EVERY_N_TURNS = int(os.getenv("SUMMARY_EVERY_N_TURNS", "18"))
+SUMMARY_KEEP_RECENT = int(os.getenv("SUMMARY_KEEP_RECENT", "6"))
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Logging
 # ──────────────────────────────────────────────────────────────────────────────
@@ -335,6 +339,13 @@ class VoiceLiveSession:
         self._response_watchdog: asyncio.Task | None = None  # safety net for dead sessions
         self._last_transcription_empty: bool = True  # track if last speech had real content
         self._tool_call_counts: dict[str, int] = {}  # loop guard: per-tool call count within a response cycle
+        self._conversation_item_ids: list[str] = []  # ordered list of conversation item IDs for retrieval
+        self._retrieved_items: list[dict] = []  # items retrieved at session close
+        self._retrieve_pending = 0  # counter for in-flight retrieval requests
+        # ── Summarization state ──────────────────────────────────────────────
+        self._user_turn_count = 0
+        self._last_summarized_at_turn = 0
+        self._compaction_running = False
 
     # ── 1. Connect to Voice Live ─────────────────────────────────────────
 
@@ -498,6 +509,19 @@ class VoiceLiveSession:
                             vl_session_id,
                         )
 
+                    case "conversation.item.created":
+                        item = event.get("item", {})
+                        item_id = item.get("id", "")
+                        # Skip interim response items — they're ephemeral and get removed
+                        # once the real response arrives
+                        if item_id and not item_id.startswith("interim_"):
+                            self._conversation_item_ids.append(item_id)
+
+                    case "conversation.item.retrieved":
+                        item = event.get("item", {})
+                        self._retrieved_items.append(item)
+                        self._retrieve_pending -= 1
+
                     case "session.updated":
                         logger.info(
                             "[%s] Session updated (agent: %s)",
@@ -533,6 +557,7 @@ class VoiceLiveSession:
                         # Track whether this was real speech or just noise
                         if transcript.strip():
                             self._last_transcription_empty = False
+                            self._user_turn_count += 1
                         logger.info(
                             "[%s] USER [lang=%s]: %s",
                             self._call_id,
@@ -683,13 +708,33 @@ class VoiceLiveSession:
                             logger.info("[%s] Firing deferred response.create", self._call_id)
                             await self._send_json({"type": "response.create"})
 
+                        # ── Trigger background summarization (non-blocking) ──
+                        if (
+                            status == "completed"
+                            and SUMMARY_EVERY_N_TURNS > 0
+                            and not self._compaction_running
+                            and (self._user_turn_count - self._last_summarized_at_turn) >= SUMMARY_EVERY_N_TURNS
+                        ):
+                            asyncio.create_task(self._compact_conversation())
+
                     # ── Errors ────────────────────────────────────────────
                     case "error":
-                        logger.error(
-                            "[%s] Voice Live error: %s",
-                            self._call_id,
-                            json.dumps(event),
-                        )
+                        err = event.get("error", {})
+                        code = err.get("code", "")
+                        if code == "item_retrieve_invalid_item_id":
+                            # Item was removed due to barge-in truncation or cancelled response
+                            # Must decrement pending counter to avoid hanging on retrieval
+                            self._retrieve_pending -= 1
+                            logger.debug(
+                                "[%s] Item retrieve failed (invalid item_id) — likely truncated",
+                                self._call_id,
+                            )
+                        else:
+                            logger.error(
+                                "[%s] Voice Live error: %s",
+                                self._call_id,
+                                json.dumps(event),
+                            )
 
                     case _:
                         logger.debug(
@@ -957,7 +1002,177 @@ class VoiceLiveSession:
             })
         )
 
+    async def _compact_conversation(self):
+        """
+        Background task: summarize older conversation items and delete them
+        to reduce token consumption. Runs only when no response is active and
+        user is not speaking, so the user is never interrupted.
+        """
+        if self._compaction_running:
+            return
+        self._compaction_running = True
+        try:
+            # Wait until no response is in-flight (user finished hearing the agent)
+            for _ in range(50):  # up to 5s
+                if not self._response_active:
+                    break
+                await asyncio.sleep(0.1)
+
+            total_ids = len(self._conversation_item_ids)
+            keep = max(SUMMARY_KEEP_RECENT, 4)
+            if total_ids <= keep:
+                return
+
+            old_ids = self._conversation_item_ids[:-keep]
+
+            # Retrieve old items to build a summary
+            self._retrieved_items = []
+            self._retrieve_pending = len(old_ids)
+            for item_id in old_ids:
+                await self._send_json({"type": "conversation.item.retrieve", "item_id": item_id})
+
+            deadline = time.monotonic() + 5.0
+            while self._retrieve_pending > 0 and time.monotonic() < deadline:
+                await asyncio.sleep(0.1)
+
+            # Build summary text from retrieved items
+            id_order = {iid: idx for idx, iid in enumerate(old_ids)}
+            self._retrieved_items.sort(key=lambda it: id_order.get(it.get("id", ""), 9999))
+
+            lines: list[str] = []
+            for item in self._retrieved_items:
+                role = item.get("role", "")
+                if role not in ("user", "assistant"):
+                    continue
+                parts = item.get("content", [])
+                text = ""
+                for p in parts:
+                    text = p.get("text") or p.get("transcript") or ""
+                    if text:
+                        break
+                if not text:
+                    continue
+                speaker = "Customer" if role == "user" else "Agent"
+                # Truncate individual lines
+                if len(text) > 200:
+                    text = text[:200] + "..."
+                lines.append(f"- {speaker}: {text}")
+
+            if not lines:
+                return
+
+            summary = "\n".join(lines)
+
+            # Inject summary as a single context item
+            await self._send_json({
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{
+                        "type": "input_text",
+                        "text": (
+                            "[System — Conversation Summary for context. "
+                            "Do NOT read this aloud. Use as memory of earlier turns.]\n"
+                            f"{summary}"
+                        ),
+                    }],
+                },
+            })
+
+            # Delete old items from Voice Live context
+            for item_id in old_ids:
+                await self._send_json({"type": "conversation.item.delete", "item_id": item_id})
+
+            # Update local tracking
+            self._conversation_item_ids = self._conversation_item_ids[-keep:]
+            self._last_summarized_at_turn = self._user_turn_count
+            logger.info(
+                "[%s] ✂️ Compacted conversation at turn %d (deleted=%d, kept=%d)",
+                self._call_id, self._user_turn_count, len(old_ids), keep,
+            )
+        except Exception:
+            logger.exception("[%s] Conversation compaction failed", self._call_id)
+        finally:
+            self._compaction_running = False
+
+    async def _dump_conversation_history(self):
+        """
+        Retrieve all conversation items collected during the session
+        and log the complete history for audit/debugging.
+        
+        Pattern:
+          1. Collect item IDs during session from conversation.item.created events
+          2. At close, request retrieval of each item via conversation.item.retrieve
+          3. Wait for conversation.item.retrieved responses (up to 5s timeout)
+          4. Sort by creation order and log full transcript
+        """
+        if not self.vl_ws or not self._conversation_item_ids:
+            return
+
+        logger.info(
+            "[%s] Retrieving %d conversation items...",
+            self._call_id,
+            len(self._conversation_item_ids),
+        )
+        self._retrieved_items = []
+        self._retrieve_pending = len(self._conversation_item_ids)
+
+        # Request retrieval of all items
+        for item_id in self._conversation_item_ids:
+            await self._send_json({
+                "type": "conversation.item.retrieve",
+                "item_id": item_id,
+            })
+
+        # Wait for all retrieve responses (up to 5s timeout)
+        deadline = time.monotonic() + 5.0
+        while self._retrieve_pending > 0 and time.monotonic() < deadline:
+            await asyncio.sleep(0.1)
+
+        if self._retrieve_pending > 0:
+            logger.warning(
+                "[%s] Timed out waiting for %d item retrievals",
+                self._call_id,
+                self._retrieve_pending,
+            )
+
+        # Log the conversation in order
+        logger.info("[%s] " + "=" * 50, self._call_id)
+        logger.info("[%s] CONVERSATION HISTORY (as seen by LLM)", self._call_id)
+        logger.info("[%s] " + "-" * 50, self._call_id)
+        
+        # Sort retrieved items by the order they were created
+        id_order = {iid: idx for idx, iid in enumerate(self._conversation_item_ids)}
+        self._retrieved_items.sort(key=lambda it: id_order.get(it.get("id", ""), 999))
+        
+        for item in self._retrieved_items:
+            role = item.get("role", item.get("type", "?"))
+            contents = item.get("content", [])
+            texts = []
+            for part in contents:
+                if part.get("text"):
+                    texts.append(part["text"])
+                elif part.get("transcript"):
+                    texts.append(part["transcript"])
+                elif part.get("type") == "input_audio":
+                    texts.append("[audio]")
+            text = " ".join(texts) if texts else "(no text content)"
+            # Truncate for readability
+            if len(text) > 300:
+                text = text[:300] + "..."
+            logger.info(
+                "[%s]   %s: %s",
+                self._call_id,
+                role.upper(),
+                text,
+            )
+        logger.info("[%s] " + "=" * 50, self._call_id)
+
     async def close(self):
+        # ── Retrieve full conversation history from Voice Live ────
+        await self._dump_conversation_history()
+        
         if self.vl_ws:
             try:
                 await self.vl_ws.close()

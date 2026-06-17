@@ -28,26 +28,16 @@ Customer speaks → Azure Voice Live (STT + LLM + TTS) → Agent responds in rea
 
 ## Architecture
 
-```
-┌──────────────┐     PCM16 Audio      ┌────────────────┐     WebSocket      ┌──────────────────────┐
-│   Browser    │  ◄────────────────►  │  Quart Server  │  ◄──────────────►  │  Azure Voice Live    │
-│  (mic/spkr)  │     JSON Events      │   (Python)     │     JSON Events    │  STT + LLM + TTS     │
-└──────────────┘                      └───────┬────────┘                    └──────────────────────┘
-                                              │
-                                   ┌──────────┴──────────┐
-                                   │  Agent Orchestrator  │
-                                   │                      │
-                                   │  Anika (Triage)      │
-                                   │    ├─► Meera (Cards) │
-                                   │    ├─► Priya (Loans) │
-                                   │    ├─► Kavya (Savings)│
-                                   │    └─► Riya (General)│
-                                   │                      │
-                                   │  SQLite CRM (crm.db) │
-                                   └──────────────────────┘
-```
+![VirtualRM Architecture](docs/architecture-professional.png)
 
-**Key design:** Multi-agent orchestration via **session reconfiguration** — a single Voice Live WebSocket session is reconfigured mid-call with a new system prompt + tools when the triage agent routes to a specialist. No multi-model overhead.
+### Data Flow: Call Handling
+|---|---|
+| **Single WebSocket** | One Voice Live session per call — no reconnects, no latency gaps |
+| **Prompt-based Handoff** | Agent switch via `session.update` (reconfigures instructions + tools mid-call) |
+| **SOP Injection** | Each agent gets lean base prompt + dynamic SOP based on sub_intent |
+| **No Model Swap** | gpt-4.1-mini handles all agents — cost-efficient, consistent reasoning |
+| **Tool Filtering** | Each SOP specifies which tools are allowed → reduces hallucination risk |
+| **Context Preservation** | Conversation history stays in Voice Live — triage context injected as preamble |
 
 ---
 
