@@ -157,6 +157,10 @@ function handleControlMessage(msg) {
             addAgentMessage(msg.Text, msg.Agent);
             break;
 
+        case 'ReplaceLastAgent':
+            replaceLastAgentMessage(msg.Text, msg.Agent);
+            break;
+
         case 'UserTranscription':
             clearToolStatus();
             addUserMessage(msg.Text);
@@ -453,9 +457,21 @@ function addAgentMessage(text, agent) {
         el.appendChild(label);
     }
     const content = document.createElement('div');
+    content.className = 'agent-content';
     content.textContent = text;
     el.appendChild(content);
     appendMessage(el);
+}
+
+function replaceLastAgentMessage(text, agent) {
+    const container = document.getElementById('messages');
+    const agents = container.querySelectorAll('.message.agent');
+    if (agents.length === 0) return;
+    const last = agents[agents.length - 1];
+    const content = last.querySelector('.agent-content');
+    if (content) {
+        content.textContent = text;
+    }
 }
 
 function addUserMessage(text) {

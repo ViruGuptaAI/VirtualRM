@@ -136,10 +136,10 @@ conn(11.5, 4.65, 10.9, 4.65)
 
 plt.tight_layout()
 plt.savefig(
-    r"c:\Users\vguptha\OneDrive - Microsoft\Documents\work\Hands-on learning\VirtualRM\docs\architecture-professional.png",
+    r"c:\Users\vguptha\OneDrive - Microsoft\Documents\work\Hands-on learning\VirtualRM\docs\architecture.png",
     dpi=200,
     bbox_inches="tight",
     facecolor="#FFFFF0",
     edgecolor="none",
 )
-print("Generated docs/architecture-professional.png")
+print("Generated docs/architecture.png")

@@ -26,9 +26,9 @@ Customer speaks → Azure Voice Live (STT + LLM + TTS) → Agent responds in rea
 
 ---
 
-## Architecture
+## Functional Architecture
 
-![VirtualRM Architecture](docs/architecture-professional.png)
+![VirtualRM Architecture](docs/architecture.png)
 
 ### Data Flow: Call Handling
 |---|---|

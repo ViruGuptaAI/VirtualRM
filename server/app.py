@@ -339,13 +339,19 @@ class VoiceLiveSession:
         self._response_watchdog: asyncio.Task | None = None  # safety net for dead sessions
         self._last_transcription_empty: bool = True  # track if last speech had real content
         self._tool_call_counts: dict[str, int] = {}  # loop guard: per-tool call count within a response cycle
-        self._conversation_item_ids: list[str] = []  # ordered list of conversation item IDs for retrieval
-        self._retrieved_items: list[dict] = []  # items retrieved at session close
+        self._conversation_item_ids: list[str] = []  # ordered list of conversation item IDs
+        self._retrieved_items: dict[str, dict] = {}  # item_id → item data (populated at close)
         self._retrieve_pending = 0  # counter for in-flight retrieval requests
+        self._transcript_log: list[tuple[str, str]] = []  # local (role, text) pairs for compaction
         # ── Summarization state ──────────────────────────────────────────────
         self._user_turn_count = 0
         self._last_summarized_at_turn = 0
         self._compaction_running = False
+        # ── Barge-in transcript truncation ────────────────────────────────────
+        self._last_agent_transcript: tuple[str, str] | None = None  # (text, agent_name)
+        self._response_audio_bytes: int = 0  # audio bytes sent in current response
+        self._response_truncated: bool = False  # set when truncated fires before transcript.done
+        self._truncation_audio_end_ms: int = 0  # audio_end_ms from the truncation event
 
     # ── 1. Connect to Voice Live ─────────────────────────────────────────
 
@@ -365,7 +371,8 @@ class VoiceLiveSession:
 
             async def _connect_ws():
                 return await ws_connect(
-                    url, additional_headers=headers, family=socket.AF_INET
+                    url, additional_headers=headers, family=socket.AF_INET,
+                    max_size=16 * 1024 * 1024,  # 16MB — retrieved items include audio
                 )
 
             async def _lookup_customer():
@@ -519,7 +526,9 @@ class VoiceLiveSession:
 
                     case "conversation.item.retrieved":
                         item = event.get("item", {})
-                        self._retrieved_items.append(item)
+                        item_id = item.get("id", "")
+                        if item_id:
+                            self._retrieved_items[item_id] = item
                         self._retrieve_pending -= 1
 
                     case "session.updated":
@@ -558,6 +567,7 @@ class VoiceLiveSession:
                         if transcript.strip():
                             self._last_transcription_empty = False
                             self._user_turn_count += 1
+                            self._transcript_log.append(("user", transcript.strip()))
                         logger.info(
                             "[%s] USER [lang=%s]: %s",
                             self._call_id,
@@ -602,18 +612,15 @@ class VoiceLiveSession:
 
                         delta = event.get("delta", "")
                         audio_bytes = base64.b64decode(delta)
+                        self._response_audio_bytes += len(audio_bytes)
                         await self._send_to_browser(audio_bytes)
 
                     # ── Agent transcript ──────────────────────────────────
                     case "response.audio_transcript.done":
                         transcript = event.get("transcript", "").strip()
                         if not transcript:
-                            # Skip empty transcripts (e.g. interrupted before speaking)
                             break
-                        # Use the agent that started this response, not _current_agent
-                        # (which may have changed due to handoff mid-response)
                         agent_name = AGENT_REGISTRY[self._response_agent]["name"]
-                        # Redact any leaked tool names before logging/displaying
                         transcript = _redact_tool_names(transcript)
                         logger.info(
                             "[%s] AGENT (%s): %s",
@@ -621,6 +628,16 @@ class VoiceLiveSession:
                             agent_name,
                             transcript,
                         )
+                        self._transcript_log.append(("agent", transcript))
+
+                        # Case B: truncation already fired before transcript arrived
+                        if self._response_truncated:
+                            transcript = self._truncate_text(
+                                transcript, self._truncation_audio_end_ms
+                            )
+                            self._response_truncated = False
+
+                        self._last_agent_transcript = (transcript, agent_name)
                         await self._send_to_browser(
                             json.dumps({
                                 "Kind": "AgentTranscription",
@@ -631,11 +648,29 @@ class VoiceLiveSession:
 
                     # ── Truncation (interruption) ────────────────────────
                     case "conversation.item.truncated":
+                        audio_end_ms = event.get("audio_end_ms", 0)
                         logger.info(
-                            "[%s] Response truncated (user interrupted). item_id=%s",
+                            "[%s] Response truncated (user interrupted). item_id=%s audio_end_ms=%d",
                             self._call_id,
                             event.get("item_id"),
+                            audio_end_ms,
                         )
+                        if self._last_agent_transcript:
+                            # Case A: transcript already sent — replace it on the UI
+                            text, agent_name = self._last_agent_transcript
+                            text = self._truncate_text(text, audio_end_ms)
+                            await self._send_to_browser(
+                                json.dumps({
+                                    "Kind": "ReplaceLastAgent",
+                                    "Text": text,
+                                    "Agent": agent_name,
+                                })
+                            )
+                            self._last_agent_transcript = None
+                        else:
+                            # Case B: transcript hasn't arrived yet — set flag for when it does
+                            self._response_truncated = True
+                            self._truncation_audio_end_ms = audio_end_ms
 
                     # ── Intermediate events (ignored) ────────────────────
                     case (
@@ -647,6 +682,9 @@ class VoiceLiveSession:
                         if event_type == "response.created":
                             self._response_agent = self._current_agent
                             self._response_active = True
+                            self._response_audio_bytes = 0
+                            self._response_truncated = False
+                            self._truncation_audio_end_ms = 0
                             # Cancel watchdog — response started normally
                             if self._response_watchdog and not self._response_watchdog.done():
                                 self._response_watchdog.cancel()
@@ -664,7 +702,6 @@ class VoiceLiveSession:
                                 self._call_id,
                                 details.get("reason", "unknown"),
                             )
-                            # Agent was interrupted — never finished speaking.
                             # Clear deferred state so hold music doesn't play
                             # when the agent never got to say "please hold".
                             if self._pending_hold_music is not None:
@@ -1002,6 +1039,21 @@ class VoiceLiveSession:
             })
         )
 
+    def _truncate_text(self, text: str, audio_end_ms: int) -> str:
+        """Truncate transcript to what the user heard, based on audio timing."""
+        sent_s = self._response_audio_bytes / 48000  # PCM16 @ 24kHz
+        heard_s = audio_end_ms / 1000
+        # Only truncate if we have a reliable audio_end_ms (> 0)
+        # API sometimes returns 0 even when user heard audio
+        if audio_end_ms > 0 and sent_s > 0 and heard_s < sent_s:
+            heard_ratio = heard_s / sent_s
+            chars_heard = int(len(text) * heard_ratio)
+            if chars_heard < len(text):
+                cut = text[:chars_heard].rfind(" ")
+                if cut > 0:
+                    text = text[:cut]
+        return text + " [interrupted]"
+
     async def _compact_conversation(self):
         """
         Background task: summarize older conversation items and delete them
@@ -1023,40 +1075,22 @@ class VoiceLiveSession:
             if total_ids <= keep:
                 return
 
-            old_ids = self._conversation_item_ids[:-keep]
+            old_ids = set(self._conversation_item_ids[:-keep])
 
-            # Retrieve old items to build a summary
-            self._retrieved_items = []
-            self._retrieve_pending = len(old_ids)
-            for item_id in old_ids:
-                await self._send_json({"type": "conversation.item.retrieve", "item_id": item_id})
-
-            deadline = time.monotonic() + 5.0
-            while self._retrieve_pending > 0 and time.monotonic() < deadline:
-                await asyncio.sleep(0.1)
-
-            # Build summary text from retrieved items
-            id_order = {iid: idx for idx, iid in enumerate(old_ids)}
-            self._retrieved_items.sort(key=lambda it: id_order.get(it.get("id", ""), 9999))
-
+            # Build summary from local transcript log (no network round-trip)
             lines: list[str] = []
-            for item in self._retrieved_items:
-                role = item.get("role", "")
-                if role not in ("user", "assistant"):
-                    continue
-                parts = item.get("content", [])
-                text = ""
-                for p in parts:
-                    text = p.get("text") or p.get("transcript") or ""
-                    if text:
-                        break
-                if not text:
-                    continue
-                speaker = "Customer" if role == "user" else "Agent"
-                # Truncate individual lines
-                if len(text) > 200:
-                    text = text[:200] + "..."
-                lines.append(f"- {speaker}: {text}")
+            remaining: list[tuple[str, str]] = []
+            # We don't have a 1:1 mapping of transcript entries to item IDs,
+            # so summarize the oldest entries proportionally
+            entries_to_summarize = max(0, len(self._transcript_log) - keep)
+            for i, (role, text) in enumerate(self._transcript_log):
+                if i < entries_to_summarize:
+                    speaker = "Customer" if role == "user" else "Agent"
+                    if len(text) > 200:
+                        text = text[:200] + "..."
+                    lines.append(f"- {speaker}: {text}")
+                else:
+                    remaining.append((role, text))
 
             if not lines:
                 return
@@ -1081,15 +1115,16 @@ class VoiceLiveSession:
             })
 
             # Delete old items from Voice Live context
-            for item_id in old_ids:
+            for item_id in self._conversation_item_ids[:-keep]:
                 await self._send_json({"type": "conversation.item.delete", "item_id": item_id})
 
             # Update local tracking
             self._conversation_item_ids = self._conversation_item_ids[-keep:]
+            self._transcript_log = remaining
             self._last_summarized_at_turn = self._user_turn_count
             logger.info(
-                "[%s] ✂️ Compacted conversation at turn %d (deleted=%d, kept=%d)",
-                self._call_id, self._user_turn_count, len(old_ids), keep,
+                "[%s] ✂️ Compacted conversation at turn %d (summarized=%d entries, kept=%d)",
+                self._call_id, self._user_turn_count, entries_to_summarize, len(remaining),
             )
         except Exception:
             logger.exception("[%s] Conversation compaction failed", self._call_id)
@@ -1098,27 +1133,21 @@ class VoiceLiveSession:
 
     async def _dump_conversation_history(self):
         """
-        Retrieve all conversation items collected during the session
-        and log the complete history for audit/debugging.
-        
-        Pattern:
-          1. Collect item IDs during session from conversation.item.created events
-          2. At close, request retrieval of each item via conversation.item.retrieve
-          3. Wait for conversation.item.retrieved responses (up to 5s timeout)
-          4. Sort by creation order and log full transcript
+        Retrieve all remaining conversation items at session close
+        via conversation.item.retrieve and log the full history.
+        This is the ONLY time we use retrieval — one-time at close, acceptable cost.
         """
         if not self.vl_ws or not self._conversation_item_ids:
             return
 
         logger.info(
-            "[%s] Retrieving %d conversation items...",
+            "[%s] Retrieving %d conversation items for audit log...",
             self._call_id,
             len(self._conversation_item_ids),
         )
-        self._retrieved_items = []
+        self._retrieved_items = {}
         self._retrieve_pending = len(self._conversation_item_ids)
 
-        # Request retrieval of all items
         for item_id in self._conversation_item_ids:
             await self._send_json({
                 "type": "conversation.item.retrieve",
@@ -1137,16 +1166,14 @@ class VoiceLiveSession:
                 self._retrieve_pending,
             )
 
-        # Log the conversation in order
         logger.info("[%s] " + "=" * 50, self._call_id)
         logger.info("[%s] CONVERSATION HISTORY (as seen by LLM)", self._call_id)
         logger.info("[%s] " + "-" * 50, self._call_id)
-        
-        # Sort retrieved items by the order they were created
-        id_order = {iid: idx for idx, iid in enumerate(self._conversation_item_ids)}
-        self._retrieved_items.sort(key=lambda it: id_order.get(it.get("id", ""), 999))
-        
-        for item in self._retrieved_items:
+
+        for item_id in self._conversation_item_ids:
+            item = self._retrieved_items.get(item_id, {})
+            if not item:
+                continue
             role = item.get("role", item.get("type", "?"))
             contents = item.get("content", [])
             texts = []
@@ -1158,7 +1185,6 @@ class VoiceLiveSession:
                 elif part.get("type") == "input_audio":
                     texts.append("[audio]")
             text = " ".join(texts) if texts else "(no text content)"
-            # Truncate for readability
             if len(text) > 300:
                 text = text[:300] + "..."
             logger.info(
