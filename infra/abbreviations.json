@@ -1,0 +1,9 @@
+{
+  "resourceGroup": "rg-",
+  "containerApp": "ca-",
+  "containerAppEnvironment": "cae-",
+  "containerRegistry": "cr",
+  "managedIdentity": "id-",
+  "aiServices": "ai-",
+  "logAnalyticsWorkspace": "log-"
+}

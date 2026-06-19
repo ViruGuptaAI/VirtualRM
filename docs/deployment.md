@@ -8,7 +8,7 @@ All configuration is via `.env` file (loaded by `python-dotenv`).
 
 | Variable | Example | Purpose |
 |---|---|---|
-| `AZURE_VOICE_LIVE_ENDPOINT` | `https://my-resource.services.ai.azure.com` | Azure AI Foundry endpoint with Voice Live API access |
+| `AZURE_VOICE_LIVE_ENDPOINT` | `https://my-resource.services.ai.azure.com` | Microsoft Foundry endpoint with Voice Live API access |
 | `VOICE_LIVE_MODEL` | `gpt-4.1-mini` | Model deployment name |
 
 ### Authentication (one of these)
@@ -97,7 +97,7 @@ Server starts at `http://localhost:8000`.
 
 ## Azure Resource Setup
 
-### 1. Create Azure AI Foundry Resource
+### 1. Create Microsoft Foundry Resource
 
 ```bash
 # Create resource group
@@ -114,7 +114,7 @@ az cognitiveservices account create \
 
 ### 2. Deploy a Model
 
-Via Azure AI Foundry portal ([ai.azure.com](https://ai.azure.com)):
+Via Microsft Foundry portal ([ai.azure.com](https://ai.azure.com)):
 
 1. Open your Foundry project
 2. Go to **Model catalog** → search for `gpt-4.1-mini`

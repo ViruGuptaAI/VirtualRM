@@ -45,26 +45,70 @@ Customer speaks → Azure Voice Live (STT + LLM + TTS) → Agent responds in rea
 
 | Requirement | Details |
 |---|---|
-| **Python** | 3.11 or higher |
-| **Azure AI Foundry resource** | With Voice Live API access ([request access](https://aka.ms/voicelive)) |
-| **Model deployment** | `gpt-4.1-mini` (or `gpt-4.1`, `gpt-4o`) deployed in the same resource |
-| **Authentication** | API key **or** Azure CLI logged in (`az login`) |
+| **Azure subscription** | Active Azure subscription |
+| **Azure Developer CLI** | [Install azd](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) |
+| **Docker** | Running locally for image build |
+| **Azure CLI** | Logged in (`az login`) |
+| **Voice Live API access** | [Request access](https://aka.ms/voicelive) |
 | **Browser** | Chrome/Edge (mic access required) |
 
 ---
 
-## Quick Start
+## Deploy to Azure 
 
-### 1. Clone the Repository
+The fastest way to get running — provisions all infrastructure and deploys the app in one command.
+
+```bash
+# 1. Clone the repo
+git clone <your-repo-url>
+cd VirtualRM
+
+# 2. Login to Azure
+azd auth login
+
+# 3. Deploy everything
+azd up
+```
+
+`azd up` will prompt you for:
+- **Environment name** — used as resource prefix (e.g., `virtualrm-dev`)
+- **Azure region** — where to deploy (e.g., `eastus2`)
+
+It then provisions: Resource Group → Managed Identity → Container Registry → AI Services (with gpt-4.1-mini) → Container App, builds & pushes your Docker image, and deploys.
+
+### Customize Resource Names
+
+```bash
+# Override defaults before running azd up
+azd env set AZURE_RESOURCE_GROUP "my-custom-rg"
+azd env set AZURE_CONTAINER_APP_NAME "my-virtualrm"
+azd env set AZURE_AI_SERVICES_NAME "my-ai-service"
+azd env set VOICE_LIVE_MODEL "gpt-4.1"
+```
+
+### Redeploy After Code Changes
+
+```bash
+azd deploy
+```
+
+### Tear Down
+
+```bash
+azd down
+```
+
+---
+
+## Local Development
+
+For running locally without Azure infrastructure:
+
+### 1. Clone & Setup
 
 ```bash
 git clone <your-repo-url>
 cd VirtualRM
-```
-
-### 2. Create Virtual Environment
-
-```bash
 python -m venv server/.venv
 
 # Windows
@@ -72,15 +116,11 @@ server\.venv\Scripts\activate
 
 # macOS/Linux
 source server/.venv/bin/activate
-```
 
-### 3. Install Dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment
+### 2. Configure Environment
 
 ```bash
 cp .env.sample .env
@@ -108,24 +148,17 @@ az login
 # Leave AZURE_VOICE_LIVE_API_KEY blank in .env
 ```
 
-### 5. Seed the Database
+### 3. Seed & Run
 
 ```bash
 cd server
 python seed_db.py
-```
-
-This creates `server/crm.db` with 5 demo customers and all banking data.
-
-### 6. Start the Server
-
-```bash
 python app.py
 ```
 
 Server starts at **http://localhost:8000**.
 
-### 7. Use the App
+### 4. Use the App
 
 1. Open **http://localhost:8000** in Chrome/Edge
 2. Login with any demo user (e.g., `rajesh` / `contoso123`)
@@ -184,12 +217,23 @@ Server starts at **http://localhost:8000**.
 
 ```
 VirtualRM/
-├── .env.sample                    # Environment template
-├── .gitignore
-├── requirements.txt               # Python dependencies (4 packages)
+├── azure.yaml                     # azd project definition
+├── Dockerfile                     # Container build
+├── requirements.txt               # Python dependencies
 ├── pyproject.toml                 # Project metadata
-├── README.md                      # This file
-├── docs/                          # Detailed documentation
+├── infra/                         # Azure infrastructure (Bicep)
+│   ├── main.bicep                 # Orchestrator (subscription-scoped)
+│   ├── main.parameters.json       # Parameterized config
+│   ├── abbreviations.json         # Naming conventions
+│   └── modules/
+│       ├── managed-identity.bicep # User-assigned MI + RBAC
+│       ├── container-registry.bicep # ACR + AcrPull role
+│       ├── ai-services.bicep      # AI Services + model deployment
+│       └── container-app.bicep    # Container App + env + scaling
+├── hooks/                         # azd lifecycle hooks
+│   └── postdeploy.sh             # Prints app URL after deploy
+├── docs/                          # Documentation
+│   ├── architecture.png           # Architecture diagram
 │   ├── architecture.md            # System architecture & data flow
 │   ├── agents.md                  # Agent personalities & configuration
 │   ├── sops.md                    # Standard Operating Procedures
@@ -286,7 +330,7 @@ See the [docs/](docs/) folder for in-depth documentation:
 |---|---|
 | Server | Python 3.11+, Quart (async Flask), Hypercorn ASGI |
 | Voice AI | Azure Voice Live API (preview) |
-| LLM | GPT-4.1-mini via Azure AI Foundry |
+| LLM | GPT-4.1-mini via Microsoft Foundry |
 | STT | Azure Speech (via Voice Live) |
 | TTS | Azure Dragon HD Neural (via Voice Live) |
 | Database | SQLite |
@@ -298,7 +342,7 @@ See the [docs/](docs/) folder for in-depth documentation:
 ## References
 
 - [Azure Voice Live API documentation](https://learn.microsoft.com/azure/ai-services/speech-service/voice-live-overview)
-- [Azure AI Foundry](https://ai.azure.com)
+- [Microsoft Foundry](https://ai.azure.com)
 - [Azure TTS voices](https://learn.microsoft.com/azure/ai-services/speech-service/language-support?tabs=tts)
 - [Quart documentation](https://quart.palletsprojects.com)
 

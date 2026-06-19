@@ -25,7 +25,7 @@ Just respond naturally to whatever the customer says.
 | Intent | Sub-Intent | Triggers |
 |---|---|---|
 | `loan` | `rate_reduction` | reduce rate, lower interest, competitor rate, SBI offered, rate negotiation |
-| `loan` | `new_inquiry` | new loan, apply for loan, home loan details, personal loan eligibility |
+| `loan` | `new_inquiry` | new loan, apply for loan, home loan details, personal loan eligibility | 
 | `loan` | `loan_status` | active loans, how many loans, loan details, my loans, check loans, loan statement, loan balance, existing loans |
 | `loan` | `foreclosure` | foreclose, prepay, close loan, full payment, settle loan |
 | `loan` | `balance_transfer` | transfer loan, switch bank, move loan from, balance transfer |
