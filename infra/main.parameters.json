@@ -22,6 +22,15 @@
     },
     "voiceLiveModel": {
       "value": "${VOICE_LIVE_MODEL=gpt-4.1-mini}"
+    },
+    "voiceLiveLocation": {
+      "value": "${VOICE_LIVE_LOCATION=centralindia}"
+    },
+    "llmLocation": {
+      "value": "${LLM_LOCATION=southindia}"
+    },
+    "modelSkuName": {
+      "value": "${MODEL_SKU_NAME=Standard}"
     }
   }
 }

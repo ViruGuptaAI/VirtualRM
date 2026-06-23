@@ -47,7 +47,6 @@ Customer speaks → Azure Voice Live (STT + LLM + TTS) → Agent responds in rea
 |---|---|
 | **Azure subscription** | Active Azure subscription |
 | **Azure Developer CLI** | [Install azd](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) |
-| **Docker** | Running locally for image build |
 | **Azure CLI** | Logged in (`az login`) |
 | **Voice Live API access** | [Request access](https://aka.ms/voicelive) |
 | **Browser** | Chrome/Edge (mic access required) |
@@ -74,7 +73,18 @@ azd up
 - **Environment name** — used as resource prefix (e.g., `virtualrm-dev`)
 - **Azure region** — where to deploy (e.g., `eastus2`)
 
-It then provisions: Resource Group → Managed Identity → Container Registry → AI Services (with gpt-4.1-mini) → Container App, builds & pushes your Docker image, and deploys.
+It then provisions: Resource Group → Managed Identity → Container Registry → Voice Live resource (Central India) → LLM resource (South India, with gpt-4.1-mini) → Container App, builds the image remotely in ACR, and deploys.
+
+### Dual-Region Architecture
+
+Voice Live and the LLM model are deployed to **separate regions** because of service availability:
+
+| Resource | Region | Purpose |
+|---|---|---|
+| Voice Live (STT + TTS) | `centralindia` | Real-time speech processing |
+| LLM (gpt-4.1-mini) | `southindia` | Model inference via BYOM |
+
+Voice Live routes to the LLM via `BYOM_PROFILE=byom-azure-openai-chat-completion` — this is configured automatically by the Bicep template.
 
 ### Customize Resource Names
 
@@ -84,6 +94,11 @@ azd env set AZURE_RESOURCE_GROUP "my-custom-rg"
 azd env set AZURE_CONTAINER_APP_NAME "my-virtualrm"
 azd env set AZURE_AI_SERVICES_NAME "my-ai-service"
 azd env set VOICE_LIVE_MODEL "gpt-4.1"
+
+# Override regions if needed
+azd env set VOICE_LIVE_LOCATION "centralindia"
+azd env set LLM_LOCATION "southindia"
+azd env set MODEL_SKU_NAME "GlobalStandard"
 ```
 
 ### Redeploy After Code Changes

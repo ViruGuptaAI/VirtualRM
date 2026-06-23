@@ -25,6 +25,12 @@ param aiServicesEndpoint string
 @description('Voice Live model deployment name')
 param voiceLiveModel string = 'gpt-4.1-mini'
 
+@description('BYOM profile for cross-resource LLM routing')
+param byomProfile string = ''
+
+@description('Foundry resource name for BYOM override (just the resource name, not full URL)')
+param foundryResourceOverride string = ''
+
 var abbrs = loadJsonContent('../abbreviations.json')
 
 // ─── Log Analytics Workspace ────────────────────────────────────────────────
@@ -109,6 +115,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'AZURE_VOICE_LIVE_API_KEY'
               value: ''
+            }
+            {
+              name: 'BYOM_PROFILE'
+              value: byomProfile
+            }
+            {
+              name: 'FOUNDRY_RESOURCE_OVERRIDE'
+              value: foundryResourceOverride
             }
           ]
         }

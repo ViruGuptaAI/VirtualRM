@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "1790858659516203867"
+      "templateHash": "13458841036604289744"
     }
   },
   "parameters": {
@@ -57,6 +57,32 @@
       "defaultValue": "gpt-4.1-mini",
       "metadata": {
         "description": "Voice Live model deployment name"
+      }
+    },
+    "voiceLiveLocation": {
+      "type": "string",
+      "defaultValue": "centralindia",
+      "metadata": {
+        "description": "Region for Voice Live resource (STT + TTS)"
+      }
+    },
+    "llmLocation": {
+      "type": "string",
+      "defaultValue": "southindia",
+      "metadata": {
+        "description": "Region for LLM resource (model deployment)"
+      }
+    },
+    "modelSkuName": {
+      "type": "string",
+      "defaultValue": "Standard",
+      "allowedValues": [
+        "GlobalStandard",
+        "Standard",
+        "DataZoneStandard"
+      ],
+      "metadata": {
+        "description": "Model deployment SKU for the LLM resource (Standard for regional deployments like southindia)"
       }
     }
   },
@@ -289,7 +315,7 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "ai-services",
+      "name": "voice-live",
       "resourceGroup": "[variables('_rgName')]",
       "properties": {
         "expressionEvaluationOptions": {
@@ -298,16 +324,13 @@
         "mode": "Incremental",
         "parameters": {
           "name": {
-            "value": "[variables('_aiServicesName')]"
+            "value": "[format('{0}-voicelive', variables('_aiServicesName'))]"
           },
           "location": {
-            "value": "[parameters('location')]"
+            "value": "[parameters('voiceLiveLocation')]"
           },
           "tags": {
             "value": "[variables('tags')]"
-          },
-          "modelName": {
-            "value": "[parameters('voiceLiveModel')]"
           },
           "managedIdentityPrincipalId": {
             "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'managed-identity'), '2025-04-01').outputs.principalId.value]"
@@ -320,7 +343,127 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "12191814274764366089"
+              "templateHash": "3390786406702154510"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the AI Services account for Voice Live"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region (Voice Live available in centralindia)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            },
+            "managedIdentityPrincipalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID of the managed identity to grant Cognitive Services User"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.CognitiveServices/accounts",
+              "apiVersion": "2024-10-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "AIServices",
+              "sku": {
+                "name": "S0"
+              },
+              "properties": {
+                "customSubDomainName": "[parameters('name')]",
+                "publicNetworkAccess": "Enabled",
+                "disableLocalAuth": false
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', parameters('name'))]",
+              "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', parameters('name')), parameters('managedIdentityPrincipalId'), 'a97b65f3-24c7-4388-baec-2e87135dc908')]",
+              "properties": {
+                "principalId": "[parameters('managedIdentityPrincipalId')]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908')]",
+                "principalType": "ServicePrincipal"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "endpoint": {
+              "type": "string",
+              "value": "[format('https://{0}.services.ai.azure.com', parameters('name'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('name'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'managed-identity')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('_rgName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "llm-services",
+      "resourceGroup": "[variables('_rgName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('{0}-llm', variables('_aiServicesName'))]"
+          },
+          "location": {
+            "value": "[parameters('llmLocation')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "modelName": {
+            "value": "[parameters('voiceLiveModel')]"
+          },
+          "modelSkuName": {
+            "value": "[parameters('modelSkuName')]"
+          },
+          "managedIdentityPrincipalId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'managed-identity'), '2025-04-01').outputs.principalId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "15587714341568143614"
             }
           },
           "parameters": {
@@ -348,6 +491,18 @@
               "defaultValue": "gpt-4.1-mini",
               "metadata": {
                 "description": "Model to deploy for Voice Live API"
+              }
+            },
+            "modelSkuName": {
+              "type": "string",
+              "defaultValue": "Standard",
+              "allowedValues": [
+                "GlobalStandard",
+                "Standard",
+                "DataZoneStandard"
+              ],
+              "metadata": {
+                "description": "SKU name for the model deployment (Standard for regional deployments like southindia)"
               }
             },
             "managedIdentityPrincipalId": {
@@ -379,7 +534,7 @@
               "apiVersion": "2024-10-01",
               "name": "[format('{0}/{1}', parameters('name'), parameters('modelName'))]",
               "sku": {
-                "name": "GlobalStandard",
+                "name": "[parameters('modelSkuName')]",
                 "capacity": 50
               },
               "properties": {
@@ -459,10 +614,16 @@
             "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'managed-identity'), '2025-04-01').outputs.clientId.value]"
           },
           "aiServicesEndpoint": {
-            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'ai-services'), '2025-04-01').outputs.endpoint.value]"
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'voice-live'), '2025-04-01').outputs.endpoint.value]"
           },
           "voiceLiveModel": {
             "value": "[parameters('voiceLiveModel')]"
+          },
+          "byomProfile": {
+            "value": "byom-azure-openai-chat-completion"
+          },
+          "foundryResourceOverride": {
+            "value": "[format('{0}-llm', variables('_aiServicesName'))]"
           }
         },
         "template": {
@@ -472,7 +633,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "16708586549452028406"
+              "templateHash": "6125436444011984496"
             }
           },
           "parameters": {
@@ -524,6 +685,20 @@
               "defaultValue": "gpt-4.1-mini",
               "metadata": {
                 "description": "Voice Live model deployment name"
+              }
+            },
+            "byomProfile": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "BYOM profile for cross-resource LLM routing"
+              }
+            },
+            "foundryResourceOverride": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Foundry resource name for BYOM override (just the resource name, not full URL)"
               }
             }
           },
@@ -626,6 +801,14 @@
                         {
                           "name": "AZURE_VOICE_LIVE_API_KEY",
                           "value": ""
+                        },
+                        {
+                          "name": "BYOM_PROFILE",
+                          "value": "[parameters('byomProfile')]"
+                        },
+                        {
+                          "name": "FOUNDRY_RESOURCE_OVERRIDE",
+                          "value": "[parameters('foundryResourceOverride')]"
                         }
                       ]
                     }
@@ -669,9 +852,9 @@
       },
       "dependsOn": [
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'container-registry')]",
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'ai-services')]",
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'managed-identity')]",
-        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('_rgName'))]"
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('_rgName'))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'voice-live')]"
       ]
     }
   ],
@@ -698,7 +881,11 @@
     },
     "AZURE_VOICE_LIVE_ENDPOINT": {
       "type": "string",
-      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'ai-services'), '2025-04-01').outputs.endpoint.value]"
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'voice-live'), '2025-04-01').outputs.endpoint.value]"
+    },
+    "AZURE_LLM_ENDPOINT": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('_rgName')), 'Microsoft.Resources/deployments', 'llm-services'), '2025-04-01').outputs.endpoint.value]"
     },
     "AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID": {
       "type": "string",

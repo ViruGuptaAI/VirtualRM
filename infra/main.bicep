@@ -25,6 +25,16 @@ param aiServicesName string = ''
 @description('Voice Live model deployment name')
 param voiceLiveModel string = 'gpt-4.1-mini'
 
+@description('Region for Voice Live resource (STT + TTS)')
+param voiceLiveLocation string = 'centralindia'
+
+@description('Region for LLM resource (model deployment)')
+param llmLocation string = 'southindia'
+
+@description('Model deployment SKU for the LLM resource (Standard for regional deployments like southindia)')
+@allowed(['GlobalStandard', 'Standard', 'DataZoneStandard'])
+param modelSkuName string = 'Standard'
+
 // ─── Variables ──────────────────────────────────────────────────────────────
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -67,15 +77,28 @@ module acr './modules/container-registry.bicep' = {
   }
 }
 
-// ─── AI Services (Voice Live API) ───────────────────────────────────────────
-module aiServices './modules/ai-services.bicep' = {
-  name: 'ai-services'
+// ─── Voice Live Resource (Central India — STT + TTS) ────────────────────────
+module voiceLive './modules/voice-live.bicep' = {
+  name: 'voice-live'
   scope: rg
   params: {
-    name: _aiServicesName
-    location: location
+    name: '${_aiServicesName}-voicelive'
+    location: voiceLiveLocation
+    tags: tags
+    managedIdentityPrincipalId: identity.outputs.principalId
+  }
+}
+
+// ─── LLM Resource (South India — model deployment) ──────────────────────────
+module llmServices './modules/ai-services.bicep' = {
+  name: 'llm-services'
+  scope: rg
+  params: {
+    name: '${_aiServicesName}-llm'
+    location: llmLocation
     tags: tags
     modelName: voiceLiveModel
+    modelSkuName: modelSkuName
     managedIdentityPrincipalId: identity.outputs.principalId
   }
 }
@@ -91,8 +114,10 @@ module containerApp './modules/container-app.bicep' = {
     containerRegistryLoginServer: acr.outputs.loginServer
     managedIdentityId: identity.outputs.id
     managedIdentityClientId: identity.outputs.clientId
-    aiServicesEndpoint: aiServices.outputs.endpoint
+    aiServicesEndpoint: voiceLive.outputs.endpoint
     voiceLiveModel: voiceLiveModel
+    byomProfile: 'byom-azure-openai-chat-completion'
+    foundryResourceOverride: '${_aiServicesName}-llm'
   }
 }
 
@@ -102,6 +127,7 @@ output AZURE_CONTAINER_REGISTRY_ENDPOINT string = acr.outputs.loginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = acr.outputs.name
 output AZURE_CONTAINER_APP_NAME string = containerApp.outputs.name
 output AZURE_CONTAINER_APP_FQDN string = containerApp.outputs.fqdn
-output AZURE_VOICE_LIVE_ENDPOINT string = aiServices.outputs.endpoint
+output AZURE_VOICE_LIVE_ENDPOINT string = voiceLive.outputs.endpoint
+output AZURE_LLM_ENDPOINT string = llmServices.outputs.endpoint
 output AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID string = identity.outputs.clientId
 output VOICE_LIVE_MODEL string = voiceLiveModel

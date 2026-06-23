@@ -1,22 +1,15 @@
-// ─── AI Services — LLM Resource (South India) ───────────────────────────────
-// Provisions Azure AI Services account with the LLM model deployment.
-// Voice Live (in Central India) routes here via BYOM profile.
+// ─── Voice Live Resource (Central India) ─────────────────────────────────────
+// Provisions Azure AI Services account for Voice Live API (STT + TTS).
+// No model deployment here — routes to LLM via BYOM profile.
 
-@description('Name of the AI Services account')
+@description('Name of the AI Services account for Voice Live')
 param name string
 
-@description('Azure region')
+@description('Azure region (Voice Live available in centralindia)')
 param location string
 
 @description('Resource tags')
 param tags object = {}
-
-@description('Model to deploy for Voice Live API')
-param modelName string = 'gpt-4.1-mini'
-
-@description('SKU name for the model deployment (Standard for regional deployments like southindia)')
-@allowed(['GlobalStandard', 'Standard', 'DataZoneStandard'])
-param modelSkuName string = 'Standard'
 
 @description('Principal ID of the managed identity to grant Cognitive Services User')
 param managedIdentityPrincipalId string
@@ -33,23 +26,6 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
     customSubDomainName: name
     publicNetworkAccess: 'Enabled'
     disableLocalAuth: false
-  }
-}
-
-// Deploy the Voice Live model
-resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
-  parent: aiServices
-  name: modelName
-  sku: {
-    name: modelSkuName
-    capacity: 50
-  }
-  properties: {
-    model: {
-      format: 'OpenAI'
-      name: modelName
-      version: '2025-04-14'
-    }
   }
 }
 
