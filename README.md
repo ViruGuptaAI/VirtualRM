@@ -71,20 +71,42 @@ azd up
 
 `azd up` will prompt you for:
 - **Environment name** — used as resource prefix (e.g., `virtualrm-dev`)
-- **Azure region** — where to deploy (e.g., `eastus2`)
+- **Azure region** — where to deploy (e.g., `centralindia`)
 
-It then provisions: Resource Group → Managed Identity → Container Registry → Voice Live resource (Central India) → LLM resource (South India, with gpt-4.1-mini) → Container App, builds the image remotely in ACR, and deploys.
+### Deployment Modes
 
-### Dual-Region Architecture
+| Mode | Command | What it deploys |
+|---|---|---|
+| **Default** | `azd up` | Single Foundry resource — Voice Live manages LLM internally (simplest) |
+| **BYOM** | `azd env set DEPLOYMENT_MODE "byom"` then `azd up` | Two Foundry resources — Voice Live (centralindia) + separate LLM (southindia) |
 
-Voice Live and the LLM model are deployed to **separate regions** because of service availability:
+#### Default Mode (recommended for quick start)
+
+Deploys a single Azure AI Services resource. Voice Live handles STT, LLM inference, and TTS internally — no separate model deployment needed.
+
+```bash
+azd up
+```
+
+#### BYOM Mode (Bring Your Own Model)
+
+Use when you want the LLM deployed on a **separate Foundry resource** (e.g., for regional control, custom model, or using a different provider).
+
+```bash
+azd env set DEPLOYMENT_MODE "byom"
+azd up
+```
+
+This deploys two Foundry resources:
 
 | Resource | Region | Purpose |
 |---|---|---|
 | Voice Live (STT + TTS) | `centralindia` | Real-time speech processing |
-| LLM (gpt-4.1-mini) | `southindia` | Model inference via BYOM |
+| LLM (gpt-4.1-mini) | `southindia` | Model inference via BYOM profile |
 
-Voice Live routes to the LLM via `BYOM_PROFILE=byom-azure-openai-chat-completion` — this is configured automatically by the Bicep template.
+Voice Live routes to the LLM via `BYOM_PROFILE=byom-azure-openai-chat-completion` — configured automatically by the Bicep template.
+
+> **Note:** BYOM mode requires Azure OpenAI Responsible AI terms to be accepted on your subscription. If you see error `715-123420`, visit [aka.ms/oai/access](https://aka.ms/oai/access) to accept terms first.
 
 ### Customize Resource Names
 
@@ -93,7 +115,7 @@ Voice Live routes to the LLM via `BYOM_PROFILE=byom-azure-openai-chat-completion
 azd env set AZURE_RESOURCE_GROUP "my-custom-rg"
 azd env set AZURE_CONTAINER_APP_NAME "my-virtualrm"
 azd env set AZURE_AI_SERVICES_NAME "my-ai-service"
-azd env set VOICE_LIVE_MODEL "gpt-4.1"
+azd env set VOICE_LIVE_MODEL "gpt-4.1-mini"
 
 # Override regions if needed
 azd env set VOICE_LIVE_LOCATION "centralindia"

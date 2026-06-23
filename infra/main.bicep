@@ -10,6 +10,10 @@ param environmentName string
 @description('Primary Azure region for all resources')
 param location string
 
+@description('Deployment mode: "default" = single Foundry (model on same resource), "byom" = two Foundry resources (Voice Live + separate LLM)')
+@allowed(['default', 'byom'])
+param deploymentMode string = 'default'
+
 @description('Name of the resource group (defaults to rg-{environmentName})')
 param resourceGroupName string = ''
 
@@ -28,20 +32,24 @@ param voiceLiveModel string = 'gpt-4.1-mini'
 @description('Region for Voice Live resource (STT + TTS)')
 param voiceLiveLocation string = 'centralindia'
 
-@description('Region for LLM resource (model deployment)')
+@description('Region for LLM resource (only used in BYOM mode)')
 param llmLocation string = 'southindia'
 
-@description('Model deployment SKU for the LLM resource (Standard for regional deployments like southindia)')
+@description('Model deployment SKU for the LLM resource')
 @allowed(['GlobalStandard', 'Standard', 'DataZoneStandard'])
 param modelSkuName string = 'Standard'
+
+@description('Container image for the app (set by azd after build, uses placeholder on first deploy)')
+param containerImage string = ''
 
 // ─── Variables ──────────────────────────────────────────────────────────────
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
 var _rgName = !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourceGroup}${environmentName}'
-var _containerAppName = !empty(containerAppName) ? containerAppName : '${abbrs.containerApp}${environmentName}'
-var _containerRegistryName = !empty(containerRegistryName) ? containerRegistryName : '${abbrs.containerRegistry}${resourceToken}'
+var _containerAppName = toLower(!empty(containerAppName) ? containerAppName : '${abbrs.containerApp}${environmentName}')
+var _containerRegistryName = toLower(!empty(containerRegistryName) ? containerRegistryName : '${abbrs.containerRegistry}${resourceToken}')
 var _aiServicesName = !empty(aiServicesName) ? aiServicesName : '${abbrs.aiServices}${environmentName}'
+var isByom = deploymentMode == 'byom'
 var tags = {
   'azd-env-name': environmentName
   project: 'virtualrm'
@@ -77,7 +85,9 @@ module acr './modules/container-registry.bicep' = {
   }
 }
 
-// ─── Voice Live Resource (Central India — STT + TTS) ────────────────────────
+// ─── Voice Live Resource (Central India — STT + TTS + managed LLM) ──────────
+// In "default" mode: Voice Live handles LLM inference internally — no model deployment.
+// In "byom" mode: Voice Live routes LLM to the separate LLM resource via BYOM profile.
 module voiceLive './modules/voice-live.bicep' = {
   name: 'voice-live'
   scope: rg
@@ -89,8 +99,8 @@ module voiceLive './modules/voice-live.bicep' = {
   }
 }
 
-// ─── LLM Resource (South India — model deployment) ──────────────────────────
-module llmServices './modules/ai-services.bicep' = {
+// ─── LLM Resource (South India — model deployment, BYOM mode only) ──────────
+module llmServices './modules/ai-services.bicep' = if (isByom) {
   name: 'llm-services'
   scope: rg
   params: {
@@ -112,12 +122,13 @@ module containerApp './modules/container-app.bicep' = {
     location: location
     tags: tags
     containerRegistryLoginServer: acr.outputs.loginServer
+    containerImage: containerImage
     managedIdentityId: identity.outputs.id
     managedIdentityClientId: identity.outputs.clientId
     aiServicesEndpoint: voiceLive.outputs.endpoint
     voiceLiveModel: voiceLiveModel
-    byomProfile: 'byom-azure-openai-chat-completion'
-    foundryResourceOverride: '${_aiServicesName}-llm'
+    byomProfile: isByom ? 'byom-azure-openai-chat-completion' : ''
+    foundryResourceOverride: isByom ? '${_aiServicesName}-llm' : ''
   }
 }
 
@@ -128,6 +139,7 @@ output AZURE_CONTAINER_REGISTRY_NAME string = acr.outputs.name
 output AZURE_CONTAINER_APP_NAME string = containerApp.outputs.name
 output AZURE_CONTAINER_APP_FQDN string = containerApp.outputs.fqdn
 output AZURE_VOICE_LIVE_ENDPOINT string = voiceLive.outputs.endpoint
-output AZURE_LLM_ENDPOINT string = llmServices.outputs.endpoint
+output AZURE_LLM_ENDPOINT string = isByom && llmServices != null ? llmServices!.outputs.endpoint : voiceLive.outputs.endpoint
 output AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID string = identity.outputs.clientId
 output VOICE_LIVE_MODEL string = voiceLiveModel
+output DEPLOYMENT_MODE string = deploymentMode

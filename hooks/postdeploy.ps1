@@ -1,0 +1,11 @@
+# Post-deploy hook: print the app URL
+Write-Host ""
+Write-Host "=============================================="
+Write-Host "  VirtualRM deployed successfully!"
+Write-Host "=============================================="
+Write-Host ""
+Write-Host "  App URL: https://$env:AZURE_CONTAINER_APP_FQDN"
+Write-Host ""
+Write-Host "  Demo login: rajesh / contoso123"
+Write-Host ""
+Write-Host "=============================================="

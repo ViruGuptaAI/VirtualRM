@@ -8,6 +8,9 @@
     "location": {
       "value": "${AZURE_LOCATION}"
     },
+    "deploymentMode": {
+      "value": "${DEPLOYMENT_MODE=default}"
+    },
     "resourceGroupName": {
       "value": "${AZURE_RESOURCE_GROUP=}"
     },
@@ -31,6 +34,9 @@
     },
     "modelSkuName": {
       "value": "${MODEL_SKU_NAME=Standard}"
+    },
+    "containerImage": {
+      "value": "${SERVICE_APP_IMAGE_NAME=}"
     }
   }
 }

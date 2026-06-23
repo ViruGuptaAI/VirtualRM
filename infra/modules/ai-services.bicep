@@ -21,7 +21,7 @@ param modelSkuName string = 'Standard'
 @description('Principal ID of the managed identity to grant Cognitive Services User')
 param managedIdentityPrincipalId string
 
-resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+resource aiServices 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: name
   location: location
   tags: tags
@@ -37,7 +37,7 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
 }
 
 // Deploy the Voice Live model
-resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-06-01' = {
   parent: aiServices
   name: modelName
   sku: {

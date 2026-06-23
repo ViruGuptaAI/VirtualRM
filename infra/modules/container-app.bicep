@@ -13,6 +13,9 @@ param tags object = {}
 @description('Login server of the Container Registry')
 param containerRegistryLoginServer string
 
+@description('Container image override (empty = use placeholder for first deploy)')
+param containerImage string = ''
+
 @description('Resource ID of the user-assigned managed identity')
 param managedIdentityId string
 
@@ -32,6 +35,7 @@ param byomProfile string = ''
 param foundryResourceOverride string = ''
 
 var abbrs = loadJsonContent('../abbreviations.json')
+var _containerImage = !empty(containerImage) ? containerImage : 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 
 // ─── Log Analytics Workspace ────────────────────────────────────────────────
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -94,7 +98,7 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
       containers: [
         {
           name: 'virtualrm'
-          image: '${containerRegistryLoginServer}/virtualrm:latest'
+          image: _containerImage
           resources: {
             cpu: json('1.0')
             memory: '2Gi'

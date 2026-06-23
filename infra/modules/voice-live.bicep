@@ -1,6 +1,7 @@
 // ─── Voice Live Resource (Central India) ─────────────────────────────────────
-// Provisions Azure AI Services account for Voice Live API (STT + TTS).
-// No model deployment here — routes to LLM via BYOM profile.
+// Provisions Azure AI Services account for Voice Live API (STT + TTS + managed LLM).
+// In "default" mode: Voice Live handles LLM inference internally (no model deployment needed).
+// In "byom" mode: Voice Live routes LLM to an external Foundry resource via BYOM profile.
 
 @description('Name of the AI Services account for Voice Live')
 param name string

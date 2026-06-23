@@ -2,10 +2,6 @@
 name: virtualrm
 metadata:
   template: virtualrm-voice-agent
-hooks:
-  postdeploy:
-    shell: sh
-    run: hooks/postdeploy.sh
 services:
   app:
     project: .
