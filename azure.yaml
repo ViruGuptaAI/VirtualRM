@@ -2,6 +2,14 @@
 name: virtualrm
 metadata:
   template: virtualrm-voice-agent
+hooks:
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: ./hooks/postdeploy.ps1
+    posix:
+      shell: sh
+      run: ./hooks/postdeploy.sh
 services:
   app:
     project: .

@@ -4,6 +4,7 @@ Each function takes a customer_id and returns a JSON-serializable dict.
 """
 
 import sqlite3
+import re
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "crm.db"
@@ -30,6 +31,33 @@ def get_customer_profile(customer_id: str) -> dict:
     if not row:
         return {"error": "Customer not found"}
     return row
+
+
+def normalize_phone_number(phone: str) -> str:
+    """Normalize a phone number to an E.164-like '+' followed by digits."""
+    digits = re.sub(r"\D", "", phone or "")
+    return f"+{digits}" if digits else ""
+
+
+def find_customer_id_by_phone(phone: str) -> str | None:
+    normalized = normalize_phone_number(phone)
+    if not normalized:
+        return None
+    for row in _query("SELECT id, phone FROM customers"):
+        if normalize_phone_number(row.get("phone", "")) == normalized:
+            return str(row["id"])
+    return None
+
+
+def verify_customer_voice_pin(customer_id: str, pin: str) -> bool:
+    try:
+        row = _query_one(
+            "SELECT pin FROM customer_voice_pins WHERE customer_id = ?",
+            (customer_id,),
+        )
+    except sqlite3.OperationalError:
+        return False
+    return bool(row and row.get("pin") == pin)
 
 
 def get_customer_summary(customer_id: str) -> dict:

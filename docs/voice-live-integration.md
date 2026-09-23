@@ -24,8 +24,10 @@ url = f"{base}/voice-live/realtime?api-version=2026-01-01-preview&model={VOICE_L
 ```
 
 Optional BYOM (Bring Your Own Model) parameters:
-- `byom-profile=byom-azure-openai-chat-completion` — routes to external Azure OpenAI
-- `foundry-resource-override=https://...` — specifies the LLM's Foundry resource
+- `profile=byom-azure-openai-chat-completion` — routes to external Azure OpenAI
+- `foundry-resource-override=<resource-name>` — specifies the LLM's Foundry resource name (e.g., `my-llm-resource`)
+
+> **BYOM RBAC requirement:** The Voice Live resource's **system-assigned managed identity** must have the **`Foundry User`** role on the BYOM target resource. Without this, you'll get `byom_authentication_error`.
 
 ### Authentication
 

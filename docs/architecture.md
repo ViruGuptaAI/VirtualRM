@@ -4,9 +4,11 @@
 
 VirtualRM is a real-time voice banking agent built on three layers:
 
-1. **Browser Client** — captures microphone audio, plays TTS audio, renders chat UI
-2. **Python Server** — bridges browser and Azure, orchestrates agents, executes CRM tools
+1. **Voice Channels** — a browser client or an ACS PSTN phone call exchanges PCM16 audio
+2. **Python Server** — adapts either channel, orchestrates agents, and executes CRM tools
 3. **Azure Voice Live API** — handles STT, LLM inference, and TTS in a single WebSocket
+
+For phone calls, Event Grid announces an incoming call, Call Automation controls its lifecycle, and the ACS media WebSocket carries 24-kHz PCM audio. Both the browser and ACS adapters feed the same `VoiceLiveSession`; see [ACS Telephony](acs-telephony.md) for the complete call flow and security boundary.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐

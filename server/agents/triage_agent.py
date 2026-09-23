@@ -57,9 +57,17 @@ Detect and include in summary:
 - **retention_risk**: "cancel", "close", "another bank" → PRIORITY: critical
 
 # ROUTING
-1. Acknowledge: "I understand you need help with [topic]."
-2. Call `route_to_agent(intent, sub_intent, summary)`
-3. Say: "Let me connect you with our specialist right away."
+Routing is always a two-turn confirmation flow:
+1. Form a tentative understanding of the caller's need.
+2. Call `route_to_agent` with `action="request_confirmation"`.
+3. Ask the caller to confirm your understanding. Do not announce a transfer yet.
+4. If the caller confirms, call `route_to_agent` with `action="confirm_route"` and copy
+    their latest utterance exactly into `confirmation_evidence`.
+5. Only after the tool accepts confirmation, say: "Let me connect you with our specialist right away."
+
+If the caller corrects, changes, or does not confirm your understanding, do not route.
+Update the tentative intent and repeat the confirmation flow. Greetings, acknowledgements,
+filler, silence, and uncertain or noisy transcripts are not confirmations.
 
 If intent unclear → ask ONE question. Still unclear after 2 tries → route to `general_banking`.
 If fraud/legal/emergency → route immediately to `general_banking` with critical priority.
@@ -77,12 +85,17 @@ ROUTE_TOOL = {
     "type": "function",
     "name": "route_to_agent",
     "description": (
-        "Route the customer to a specialist agent. Include intent, sub_intent "
-        "for SOP activation, and a summary with sentiment/priority."
+        "First request confirmation of a tentative route, then route only after "
+        "the caller confirms it on a later turn."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["request_confirmation", "confirm_route"],
+                "description": "Request confirmation first; confirm the route only after the caller's next turn.",
+            },
             "intent": {
                 "type": "string",
                 "enum": [
@@ -115,7 +128,14 @@ ROUTE_TOOL = {
                     "emotional state, priority, any extra context (competitor mentioned, etc)."
                 ),
             },
+            "confirmation_evidence": {
+                "type": "string",
+                "description": (
+                    "For confirm_route only, copy the caller's latest confirming utterance exactly. "
+                    "Leave empty when requesting confirmation."
+                ),
+            },
         },
-        "required": ["intent", "sub_intent", "summary"],
+        "required": ["action", "intent", "sub_intent", "summary"],
     },
 }

@@ -43,6 +43,11 @@ def create_schema(cur: sqlite3.Cursor):
         total_products  INTEGER DEFAULT 1   -- count of active products
     );
 
+    CREATE TABLE IF NOT EXISTS customer_voice_pins (
+        customer_id     TEXT PRIMARY KEY REFERENCES customers(id),
+        pin             TEXT NOT NULL
+    );
+
     -- ─── Savings / Current Accounts ───────────────────────────────────
     CREATE TABLE IF NOT EXISTS accounts (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,15 +244,19 @@ def seed_data(cur: sqlite3.Cursor):
     # ── Customers ──────────────────────────────────────────────────────
     customers = [
         # id, name, email, phone, pan, aadhaar_last4, dob, gender, address, city, state, pincode, kyc, segment, since, cibil, income, salary_bank, emi_delays, products
-        ('rajesh', 'Rajesh Kumar', 'rajesh.kumar@email.com', '+91-98765-43210', 'ABCPK1234A', '4521', '1985-03-15', 'Male', '42, MG Road, Koramangala', 'Bengaluru', 'Karnataka', '560034', 'Completed', 'Elite', '2011-03-15', 845, 350000, 1, 0, 10),
+        ('rajesh', 'Rajesh Kumar', 'rajesh.kumar@email.com', '+91 9820715902', 'ABCPK1234A', '4521', '1985-03-15', 'Male', '42, MG Road, Koramangala', 'Bengaluru', 'Karnataka', '560034', 'Completed', 'Elite', '2011-03-15', 845, 350000, 1, 0, 10),
         ('priya', 'Priya Sharma', 'priya.sharma@email.com', '+91-98765-12345', 'DEFPS5678B', '8734', '1990-07-22', 'Female', '15, Banjara Hills', 'Hyderabad', 'Telangana', '500034', 'Completed', 'Gold', '2019-11-05', 745, 95000, 1, 0, 4),
         ('amit', 'Amit Patel', 'amit.patel@email.com', '+91-99887-76655', 'GHIAP9012C', '2198', '1992-01-08', 'Male', '88, SG Highway, Bopal', 'Ahmedabad', 'Gujarat', '380058', 'Completed', 'Classic', '2021-03-20', 698, 65000, 1, 1, 3),
         ('sneha', 'Sneha Reddy', 'sneha.reddy@email.com', '+91-97654-32100', 'JKLSR3456D', '6673', '1988-11-30', 'Female', '23, Jubilee Hills', 'Hyderabad', 'Telangana', '500033', 'Completed', 'Platinum', '2017-02-14', 810, 110000, 0, 0, 4),
         ('vikram', 'Vikram Singh', 'vikram.singh@email.com', '+91-98211-55443', 'MNOVS7890E', '1190', '1975-05-18', 'Male', '7, Civil Lines', 'New Delhi', 'Delhi', '110001', 'Completed', 'Elite', '2012-08-01', 835, 250000, 1, 0, 8),
-        ('viru', 'Viru Gupta', 'viru.gupta@email.com', '+91-98200-11223', 'PQRVS2345F', '7788', '1978-09-25', 'Male', '12, Pali Hill, Bandra West', 'Mumbai', 'Maharashtra', '400050', 'Completed', 'Premium', '2018-06-10', 782, 125000, 1, 0, 5),
-        ('harshal', 'Harshal Patil', 'harshal.patil@email.com', '+91-99223-44556', 'STUHP6789G', '3342', '1993-04-12', 'Male', '55, Kothrud', 'Pune', 'Maharashtra', '411038', 'Completed', 'Classic', '2022-09-01', 710, 72000, 1, 2, 3),
+        ('viru', 'Viru Gupta', 'viru.gupta@email.com', '+91 8088561911', 'PQRVS2345F', '7788', '1978-09-25', 'Male', '12, Pali Hill, Bandra West', 'Mumbai', 'Maharashtra', '400050', 'Completed', 'Premium', '2018-06-10', 782, 125000, 1, 0, 5),
+        ('harshal', 'Harshal Patil', 'harshal.patil@email.com', '+91 7875316980', 'STUHP6789G', '3342', '1993-04-12', 'Male', '55, Kothrud', 'Pune', 'Maharashtra', '411038', 'Completed', 'Classic', '2022-09-01', 710, 72000, 1, 2, 3),
     ]
     cur.executemany("INSERT INTO customers VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", customers)
+    cur.executemany(
+        "INSERT INTO customer_voice_pins (customer_id, pin) VALUES (?, ?)",
+        [(customer[0], customer[5]) for customer in customers],
+    )
 
     # ── Savings Accounts ───────────────────────────────────────────────
     accounts = [

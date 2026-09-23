@@ -37,6 +37,15 @@
     },
     "containerImage": {
       "value": "${SERVICE_APP_IMAGE_NAME=}"
+    },
+    "acsTelephonyEnabled": {
+      "value": "${ACS_TELEPHONY_ENABLED=true}"
+    },
+    "acsDataLocation": {
+      "value": "${ACS_DATA_LOCATION=UnitedStates}"
+    },
+    "acsDemoCustomerId": {
+      "value": "${ACS_DEMO_CUSTOMER_ID=}"
     }
   }
 }

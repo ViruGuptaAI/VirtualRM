@@ -1,5 +1,8 @@
 quart>=0.20
 websockets>=13.0
 azure-identity>=1.17
+azure-communication-callautomation>=1.6
+azure-data-tables>=12.7
 aiohttp>=3.9
+PyJWT[crypto]>=2.10
 python-dotenv>=1.0

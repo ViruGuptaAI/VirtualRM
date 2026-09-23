@@ -1,6 +1,6 @@
 # 🏦 Virtual Relationship Manager — Contoso Bank
 
-A real-time **voice AI agent** for banking customers, powered by **Azure Voice Live API**. Simulates a full inbound call center experience with intelligent triage, multi-agent handoffs, and human-like negotiation skills.
+A real-time **voice AI agent** for banking customers, powered by **Azure Voice Live API**. Customers can speak through the browser or call an Azure Communication Services phone number while using the same intelligent triage, multi-agent handoffs, and CRM workflows.
 
 > **Demo credentials:** Any of `rajesh`, `priya`, `amit`, `sneha`, `vikram` with password `contoso123`
 
@@ -106,6 +106,14 @@ This deploys two Foundry resources:
 
 Voice Live routes to the LLM via `BYOM_PROFILE=byom-azure-openai-chat-completion` — configured automatically by the Bicep template.
 
+> **BYOM RBAC:** The Voice Live resource's **system-assigned managed identity** must have the `Foundry User` role on the LLM resource. The Bicep template handles this automatically. For manual setup:
+> ```bash
+> # Get Voice Live identity
+> VL_PRINCIPAL=$(az cognitiveservices account show --name <voice-live-resource> -g <rg> --query identity.principalId -o tsv)
+> # Grant Foundry User on the LLM resource
+> az role assignment create --assignee-object-id $VL_PRINCIPAL --assignee-principal-type ServicePrincipal --role "Foundry User" --scope <llm-resource-id>
+> ```
+
 > **Note:** BYOM mode requires Azure OpenAI Responsible AI terms to be accepted on your subscription. If you see error `715-123420`, visit [aka.ms/oai/access](https://aka.ms/oai/access) to accept terms first.
 
 ### Customize Resource Names
@@ -173,7 +181,7 @@ VOICE_LIVE_MODEL=gpt-4.1-mini
 
 # Optional — BYO LLM (if model is on a different Foundry resource)
 BYOM_PROFILE=
-FOUNDRY_RESOURCE_OVERRIDE=
+FOUNDRY_RESOURCE_OVERRIDE=                     # resource name, not URL (e.g., my-llm-resource)
 
 # Optional — Managed Identity (for Azure deployment)
 AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID=
@@ -356,6 +364,7 @@ See the [docs/](docs/) folder for in-depth documentation:
 - **[SOPs](docs/sops.md)** — All 27 Standard Operating Procedures
 - **[CRM & Tools](docs/crm-tools.md)** — Database schema, tool functions, negotiation engine
 - **[Voice Live Integration](docs/voice-live-integration.md)** — WebSocket protocol, VAD, TTS, audio pipeline
+- **[ACS Telephony](docs/acs-telephony.md)** — PSTN ingress, Event Grid, Call Automation, media streaming, identity, and verification
 - **[Frontend](docs/frontend.md)** — Browser UI, audio handling, WebSocket client
 - **[Deployment](docs/deployment.md)** — Configuration, Azure deployment, troubleshooting
 

@@ -42,6 +42,15 @@ param modelSkuName string = 'Standard'
 @description('Container image for the app (set by azd after build, uses placeholder on first deploy)')
 param containerImage string = ''
 
+@description('Enable inbound ACS telephony')
+param acsTelephonyEnabled bool = true
+
+@description('Communication Services data location')
+param acsDataLocation string = 'UnitedStates'
+
+@description('Optional synthetic CRM customer used for unmatched callers in demo environments')
+param acsDemoCustomerId string = ''
+
 // ─── Variables ──────────────────────────────────────────────────────────────
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))
@@ -49,6 +58,8 @@ var _rgName = !empty(resourceGroupName) ? resourceGroupName : '${abbrs.resourceG
 var _containerAppName = toLower(!empty(containerAppName) ? containerAppName : '${abbrs.containerApp}${environmentName}')
 var _containerRegistryName = toLower(!empty(containerRegistryName) ? containerRegistryName : '${abbrs.containerRegistry}${resourceToken}')
 var _aiServicesName = !empty(aiServicesName) ? aiServicesName : '${abbrs.aiServices}${environmentName}'
+var _communicationServiceName = take('acs-${environmentName}-${resourceToken}', 63)
+var _callStateStorageName = take('st${replace(environmentName, '-', '')}${resourceToken}', 24)
 var isByom = deploymentMode == 'byom'
 var tags = {
   'azd-env-name': environmentName
@@ -68,6 +79,17 @@ module identity './modules/managed-identity.bicep' = {
   scope: rg
   params: {
     name: '${abbrs.managedIdentity}${environmentName}'
+    location: location
+    tags: tags
+  }
+}
+
+// ─── Private Network ────────────────────────────────────────────────────────
+module privateNetwork './modules/private-network.bicep' = {
+  name: 'private-network'
+  scope: rg
+  params: {
+    environmentName: environmentName
     location: location
     tags: tags
   }
@@ -100,6 +122,7 @@ module voiceLive './modules/voice-live.bicep' = {
 }
 
 // ─── LLM Resource (South India — model deployment, BYOM mode only) ──────────
+// Voice Live's system identity needs 'Foundry User' on this resource for BYOM auth.
 module llmServices './modules/ai-services.bicep' = if (isByom) {
   name: 'llm-services'
   scope: rg
@@ -110,6 +133,21 @@ module llmServices './modules/ai-services.bicep' = if (isByom) {
     modelName: voiceLiveModel
     modelSkuName: modelSkuName
     managedIdentityPrincipalId: identity.outputs.principalId
+    voiceLiveIdentityPrincipalId: voiceLive.outputs.identityPrincipalId
+  }
+}
+
+module acsTelephony './modules/acs-telephony.bicep' = if (acsTelephonyEnabled) {
+  name: 'acs-telephony'
+  scope: rg
+  params: {
+    communicationServiceName: _communicationServiceName
+    storageAccountName: _callStateStorageName
+    dataLocation: acsDataLocation
+    managedIdentityPrincipalId: identity.outputs.principalId
+    virtualNetworkId: privateNetwork.outputs.virtualNetworkId
+    privateEndpointSubnetId: privateNetwork.outputs.privateEndpointsSubnetId
+    tags: tags
   }
 }
 
@@ -125,10 +163,18 @@ module containerApp './modules/container-app.bicep' = {
     containerImage: containerImage
     managedIdentityId: identity.outputs.id
     managedIdentityClientId: identity.outputs.clientId
+    infrastructureSubnetId: privateNetwork.outputs.containerAppsSubnetId
     aiServicesEndpoint: voiceLive.outputs.endpoint
     voiceLiveModel: voiceLiveModel
     byomProfile: isByom ? 'byom-azure-openai-chat-completion' : ''
     foundryResourceOverride: isByom ? '${_aiServicesName}-llm' : ''
+    acsTelephonyEnabled: acsTelephonyEnabled
+    acsEndpoint: acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.communicationServiceEndpoint : ''
+    acsResourceId: acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.communicationServiceId : ''
+    acsCallbackAudience: acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.callbackAudience : ''
+    acsTableEndpoint: acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.tableEndpoint : ''
+    acsTableName: acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.tableName : ''
+    acsDemoCustomerId: acsDemoCustomerId
   }
 }
 
@@ -143,3 +189,8 @@ output AZURE_LLM_ENDPOINT string = isByom && llmServices != null ? llmServices!.
 output AZURE_USER_ASSIGNED_IDENTITY_CLIENT_ID string = identity.outputs.clientId
 output VOICE_LIVE_MODEL string = voiceLiveModel
 output DEPLOYMENT_MODE string = deploymentMode
+output AZURE_COMMUNICATION_SERVICE_NAME string = acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.communicationServiceName : ''
+output ACS_ENDPOINT string = acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.communicationServiceEndpoint : ''
+output ACS_RESOURCE_ID string = acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.communicationServiceId : ''
+output ACS_CALLBACK_AUDIENCE string = acsTelephonyEnabled && acsTelephony != null ? acsTelephony!.outputs.callbackAudience : ''
+output ACS_CALLBACK_BASE_URL string = 'https://${containerApp.outputs.fqdn}'

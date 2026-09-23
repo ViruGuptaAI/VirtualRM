@@ -23,10 +23,13 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   sku: {
     name: 'S0'
   }
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     customSubDomainName: name
     publicNetworkAccess: 'Enabled'
-    disableLocalAuth: false
+    disableLocalAuth: true
   }
 }
 
@@ -44,3 +47,4 @@ resource cognitiveServicesUserRole 'Microsoft.Authorization/roleAssignments@2022
 output endpoint string = 'https://${name}.services.ai.azure.com'
 output name string = aiServices.name
 output id string = aiServices.id
+output identityPrincipalId string = aiServices.identity.principalId

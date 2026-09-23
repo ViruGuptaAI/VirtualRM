@@ -21,6 +21,9 @@ param modelSkuName string = 'Standard'
 @description('Principal ID of the managed identity to grant Cognitive Services User')
 param managedIdentityPrincipalId string
 
+@description('Principal ID of the Voice Live resource system identity (for BYOM cross-resource access)')
+param voiceLiveIdentityPrincipalId string
+
 resource aiServices 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: name
   location: location
@@ -32,7 +35,7 @@ resource aiServices 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   properties: {
     customSubDomainName: name
     publicNetworkAccess: 'Enabled'
-    disableLocalAuth: false
+    disableLocalAuth: true
   }
 }
 
@@ -53,13 +56,24 @@ resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
   }
 }
 
-// Grant Cognitive Services User role to managed identity
+// Grant Cognitive Services User role to managed identity (for Container App to call this resource)
 resource cognitiveServicesUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(aiServices.id, managedIdentityPrincipalId, 'a97b65f3-24c7-4388-baec-2e87135dc908')
   scope: aiServices
   properties: {
     principalId: managedIdentityPrincipalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'a97b65f3-24c7-4388-baec-2e87135dc908') // Cognitive Services User
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// Grant Foundry User role to Voice Live's system identity (required for BYOM cross-resource auth)
+resource foundryUserRoleForVoiceLive 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(aiServices.id, voiceLiveIdentityPrincipalId, '53ca6127-db72-4b80-b1b0-d745d6d5456d')
+  scope: aiServices
+  properties: {
+    principalId: voiceLiveIdentityPrincipalId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '53ca6127-db72-4b80-b1b0-d745d6d5456d') // Foundry User
     principalType: 'ServicePrincipal'
   }
 }

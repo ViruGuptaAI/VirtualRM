@@ -26,6 +26,7 @@ if _server_dir not in sys.path:
 from agents import AGENT_REGISTRY  # noqa: E402
 from crm_tools import TOOL_FUNCTIONS  # noqa: E402
 from sops import get_sop  # noqa: E402
+from voice_transports import BrowserTransport, VoiceOutputTransport  # noqa: E402
 
 load_dotenv()
 
@@ -82,6 +83,25 @@ def _redact_tool_names(text: str) -> str:
     return _TOOL_NAME_PATTERN.sub("our system", text)
 
 
+def _route_confirmation_is_valid(
+    pending_route: dict[str, Any] | None,
+    intent: str,
+    sub_intent: str,
+    confirmation_evidence: str,
+    latest_transcript: str,
+    user_turn_count: int,
+) -> bool:
+    if not pending_route or not confirmation_evidence.strip():
+        return False
+    return (
+        pending_route["intent"] == intent
+        and pending_route["sub_intent"] == sub_intent
+        and user_turn_count > pending_route["proposed_at_turn"]
+        and confirmation_evidence.strip().casefold()
+        == latest_transcript.strip().casefold()
+    )
+
+
 # ── Friendly labels for tool calls (shown in browser UI) ─────────────────────
 TOOL_DISPLAY_LABELS = {
     "get_customer_profile": "Looking up your profile",
@@ -127,6 +147,7 @@ def build_session_config(
     context_summary: str = "",
     customer_name: str = "",
     sub_intent: str = "",
+    verification_required: bool = False,
 ) -> dict:
     """
     Build the session.update payload for a given agent.
@@ -171,6 +192,16 @@ def build_session_config(
             f"Start with a brief personal introduction: 'Hello {first_name}, I'm [your name] from the [department]. "
             f"Let me look into that for you.' Then immediately call the relevant tools to fetch their data.\n"
             f"Do NOT repeat the triage agent's routing language.\n\n"
+            + instructions
+        )
+
+    if verification_required:
+        instructions = (
+            "TELEPHONE VERIFICATION REQUIRED: Caller ID is not authentication. "
+            "Before discussing any customer-specific information, ask the caller "
+            "to enter their four-digit telephone PIN using the phone keypad. "
+            "Do not ask them to speak the PIN and do not invoke CRM data tools "
+            "until the system confirms verification.\n\n"
             + instructions
         )
 
@@ -223,7 +254,7 @@ def build_session_config(
                 "rate": "1.05",
             },
             # ── Model behaviour ──────────────────────────────────────────
-            "temperature": 0.1,
+            # "temperature": 0.1,
             "max_response_output_tokens": "1000",
         },
     }
@@ -322,8 +353,13 @@ class VoiceLiveSession:
       6. Specialist agent continues the conversation seamlessly
     """
 
-    def __init__(self, browser_ws, customer_id: str = "rajesh"):
-        self.browser_ws = browser_ws
+    def __init__(
+        self,
+        output_transport: VoiceOutputTransport,
+        customer_id: str = "rajesh",
+        customer_verified: bool = True,
+    ):
+        self.output_transport = output_transport
         self.vl_ws: Any = None
         self._send_queue: asyncio.Queue = asyncio.Queue()
         self._user_speech_end_ts = None
@@ -331,6 +367,7 @@ class VoiceLiveSession:
         self._current_agent = "triage"
         self._call_id = str(uuid.uuid4())[:8]
         self._customer_id = customer_id
+        self._customer_verified = customer_verified
         self._response_agent = "triage"  # agent that started the current response
         self._response_active = False  # True while a response is being generated
         self._pending_response_create = False  # deferred response.create after handoff
@@ -343,6 +380,7 @@ class VoiceLiveSession:
         self._retrieved_items: dict[str, dict] = {}  # item_id → item data (populated at close)
         self._retrieve_pending = 0  # counter for in-flight retrieval requests
         self._transcript_log: list[tuple[str, str]] = []  # local (role, text) pairs for compaction
+        self._pending_route: dict[str, Any] | None = None
         # ── Summarization state ──────────────────────────────────────────────
         self._user_turn_count = 0
         self._last_summarized_at_turn = 0
@@ -383,7 +421,11 @@ class VoiceLiveSession:
                 _connect_ws(), _lookup_customer()
             )
             self.vl_ws = ws_result
-            self._customer_name = profile.get("name", "") if isinstance(profile, dict) else ""
+            self._customer_name = (
+                profile.get("name", "")
+                if self._customer_verified and isinstance(profile, dict)
+                else ""
+            )
         except Exception as exc:
             logger.error(
                 "[%s] Voice Live connection failed: %s", self._call_id, exc
@@ -400,7 +442,11 @@ class VoiceLiveSession:
         )
 
         # Send triage agent config
-        await self._send_json(build_session_config("triage", customer_name=self._customer_name))
+        await self._send_json(build_session_config(
+            "triage",
+            customer_name=self._customer_name,
+            verification_required=not self._customer_verified,
+        ))
 
         # Trigger the opening greeting with explicit text to skip model inference.
         # The model only needs to synthesize speech, not figure out what to say.
@@ -423,6 +469,36 @@ class VoiceLiveSession:
         asyncio.create_task(self._receiver_loop())
         asyncio.create_task(self._sender_loop())
         asyncio.create_task(self._heartbeat_loop())
+
+    async def complete_phone_verification(self) -> None:
+        from crm_tools import get_customer_profile
+
+        profile = get_customer_profile(self._customer_id)
+        self._customer_verified = True
+        self._customer_name = profile.get("name", "") if isinstance(profile, dict) else ""
+        await self._send_json(build_session_config(
+            self._current_agent,
+            customer_name=self._customer_name,
+        ))
+        await self._send_json({
+            "type": "response.create",
+            "response": {
+                "modalities": ["audio", "text"],
+                "instructions": "Confirm verification succeeded, then ask how you can help.",
+            },
+        })
+
+    async def reject_phone_verification(self) -> None:
+        await self._send_json({
+            "type": "response.create",
+            "response": {
+                "modalities": ["audio", "text"],
+                "instructions": (
+                    "Say the PIN was not accepted. Ask the caller to try again "
+                    "using the phone keypad, without saying the digits aloud."
+                ),
+            },
+        })
 
     # ── 2. Agent Handoff ─────────────────────────────────────────────────
 
@@ -863,9 +939,73 @@ class VoiceLiveSession:
             except json.JSONDecodeError:
                 args = {"intent": "general_banking", "summary": ""}
 
+            action = args.get("action", "request_confirmation")
             intent = args.get("intent", "general_banking")
             sub_intent = args.get("sub_intent", "general")
             summary = args.get("summary", "")
+            latest_transcript = next(
+                (text for role, text in reversed(self._transcript_log) if role == "user"),
+                "",
+            )
+
+            if action == "request_confirmation":
+                self._pending_route = {
+                    "intent": intent,
+                    "sub_intent": sub_intent,
+                    "summary": summary,
+                    "proposed_at_turn": self._user_turn_count,
+                }
+                await self._send_json({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "status": "confirmation_required",
+                            "message": (
+                                "Ask the caller to confirm your understanding before routing. "
+                                "Do not announce or perform a transfer yet."
+                            ),
+                        }),
+                    },
+                })
+                await self._safe_response_create()
+                return
+
+            confirmation_evidence = args.get("confirmation_evidence", "")
+            if not _route_confirmation_is_valid(
+                self._pending_route,
+                intent,
+                sub_intent,
+                confirmation_evidence,
+                latest_transcript,
+                self._user_turn_count,
+            ):
+                logger.warning(
+                    "[%s] Rejected unconfirmed route (intent=%s, turn=%d)",
+                    self._call_id,
+                    intent,
+                    self._user_turn_count,
+                )
+                await self._send_json({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "status": "rejected",
+                            "message": (
+                                "Routing was not confirmed on a later caller turn. "
+                                "Clarify the request and ask for confirmation again."
+                            ),
+                        }),
+                    },
+                })
+                await self._safe_response_create()
+                return
+
+            summary = self._pending_route["summary"]
+            self._pending_route = None
 
             # Send function call output (acknowledge the call)
             await self._send_json({
@@ -920,6 +1060,20 @@ class VoiceLiveSession:
                 args = json.loads(args_str) if args_str.strip() else {}
             except json.JSONDecodeError:
                 args = {}
+
+            if not self._customer_verified:
+                await self._send_json({
+                    "type": "conversation.item.create",
+                    "item": {
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": json.dumps({
+                            "error": "Telephone PIN verification is required before customer data can be accessed."
+                        }),
+                    },
+                })
+                await self._safe_response_create()
+                return
 
             tool_fn = TOOL_FUNCTIONS[fn_name]
 
@@ -1024,9 +1178,9 @@ class VoiceLiveSession:
 
     async def _send_to_browser(self, data):
         try:
-            await self.browser_ws.send(data)
+            await self.output_transport.send(data)
         except Exception:
-            logger.exception("[%s] Failed to send to browser", self._call_id)
+            logger.exception("[%s] Failed to send to voice client", self._call_id)
 
     async def _send_agent_info(self, agent_key: str):
         """Notify browser which agent is currently active."""
@@ -1211,6 +1365,10 @@ class VoiceLiveSession:
 # ──────────────────────────────────────────────────────────────────────────────
 app = Quart(__name__, static_folder="static")
 
+from acs_telephony import register_acs_routes  # noqa: E402
+
+register_acs_routes(app, VoiceLiveSession)
+
 
 @app.route("/")
 async def index():
@@ -1263,13 +1421,17 @@ async def web_ws():
         pass
 
     # Pass the pre-started auth task to the session
-    session = VoiceLiveSession(websocket, customer_id=customer_id)
+    session = VoiceLiveSession(
+        BrowserTransport(websocket),
+        customer_id=customer_id,
+    )
     asyncio.create_task(session.start(auth_task=auth_task))
 
     try:
         while True:
             msg = await websocket.receive()
-            await session.handle_browser_audio(msg)
+            if isinstance(msg, bytes):
+                await session.handle_browser_audio(msg)
     except asyncio.CancelledError:
         pass
     except Exception:
@@ -1298,7 +1460,7 @@ async def _prewarm_auth():
 # ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(
-        debug=True,
+        debug=os.getenv("APP_DEBUG", "false").lower() == "true",
         host=os.getenv("APP_HOST", "0.0.0.0"),
         port=int(os.getenv("APP_PORT", "8000")),
     )

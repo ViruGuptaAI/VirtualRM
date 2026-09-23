@@ -4,7 +4,9 @@ WORKDIR /app
 
 # Install dependencies first (cache layer)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir \
+	--index-url https://packagefeedproxy.microsoft.io/pypi/simple \
+	-r requirements.txt
 
 # Copy application code
 COPY server/ server/

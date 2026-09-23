@@ -28,7 +28,15 @@ Use when the LLM is deployed on a **different** Foundry resource than Voice Live
 | Variable | Example | Purpose |
 |---|---|---|
 | `BYOM_PROFILE` | `byom-azure-openai-chat-completion` | BYOM routing profile |
-| `FOUNDRY_RESOURCE_OVERRIDE` | `https://llm-resource.services.ai.azure.com` | LLM's Foundry endpoint |
+| `FOUNDRY_RESOURCE_OVERRIDE` | `my-llm-resource` | LLM's Foundry resource name (not a URL) |
+
+> **BYOM RBAC:** The Voice Live resource's system-assigned managed identity needs the **`Foundry User`** role on the BYOM target resource. For local dev, grant this via:
+> ```bash
+> # Get Voice Live identity principal ID
+> az cognitiveservices account show --name <voice-live-resource> -g <rg> --query identity.principalId -o tsv
+> # Assign Foundry User on the LLM resource
+> az role assignment create --assignee-object-id <principal-id> --assignee-principal-type ServicePrincipal --role "Foundry User" --scope <llm-resource-id>
+> ```
 
 **Supported BYOM profiles:**
 - `byom-azure-openai-chat-completion` — Azure OpenAI (chat)
@@ -248,6 +256,7 @@ Then remove `AZURE_VOICE_LIVE_API_KEY` from app settings — the app will use Ma
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `byom_authentication_error` | Voice Live identity missing `Foundry User` role on BYOM resource | Grant `Foundry User` to Voice Live's system identity on the LLM resource |
 | `Azure Fast Transcription timeout` | Invalid STT language format | Check `input_audio_transcription.language` format |
 | `conversation_already_has_active_response` | Race between VAD auto-response and manual `response.create` | Use `_safe_response_create()` instead of direct send |
 | Agent stops responding | VAD failed to auto-create response | Watchdog timer handles this automatically |
